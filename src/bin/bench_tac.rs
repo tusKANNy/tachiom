@@ -7,7 +7,28 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::time::Instant;
 
+use rayon::prelude::*;
+use tachiom::KMeansSolver;
 use tachiom::tac::{TacBuilder, TacResult};
+
+/// Clustering objective: mean over vectors of the squared distance to their assigned centroid.
+fn mean_squared_distance(data: &[f16], dim: usize, result: &TacResult) -> f64 {
+    let total: f64 = data
+        .par_chunks_exact(dim)
+        .zip(result.assignments.par_iter())
+        .map(|(v, &c)| {
+            let centroid = &result.centroids[c as usize * dim..(c as usize + 1) * dim];
+            v.iter()
+                .zip(centroid)
+                .map(|(x, y)| {
+                    let d = x.to_f32() - y.to_f32();
+                    (d * d) as f64
+                })
+                .sum::<f64>()
+        })
+        .sum();
+    total / (data.len() / dim) as f64
+}
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -28,9 +49,14 @@ struct Args {
     #[clap(long)]
     total_centroids: usize,
 
-    /// Number of k-means iterations per token group
-    #[clap(long, default_value_t = 10)]
-    tac_n_iter: usize,
+    /// K-means budget per token group, in epochs (one epoch assigns every training vector once).
+    /// Default: the solver's default, 10 for Lloyd and 2 for e-means
+    #[clap(long)]
+    tac_epochs: Option<f64>,
+
+    /// K-means solver per token group (default: vectorium's default)
+    #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
+    tac_solver: KMeansSolver,
 
     /// Output directory for centroids.npy, assignments.npy and timing.txt
     #[clap(short = 'o', long)]
@@ -52,7 +78,9 @@ fn main() -> anyhow::Result<()> {
     println!("Input file:      {}", args.vectors_file);
     println!("Token IDs file:  {}", args.token_ids_file);
     println!("Total centroids: {}", args.total_centroids);
-    println!("K-means iters:   {}", args.tac_n_iter);
+    let epochs = args.tac_solver.epochs(args.tac_epochs);
+    println!("K-means epochs:  {}", epochs);
+    println!("K-means solver:  {:?}", args.tac_solver);
     println!("Output dir:      {}", args.output_dir);
     println!("CPU cores:       {}", rayon::current_num_threads());
 
@@ -94,7 +122,8 @@ fn main() -> anyhow::Result<()> {
     let train_start = Instant::now();
 
     let tac = TacBuilder::new()
-        .n_iter(args.tac_n_iter)
+        .epochs(epochs)
+        .solver(args.tac_solver)
         .verbose(args.verbose)
         .build();
 
@@ -106,14 +135,15 @@ fn main() -> anyhow::Result<()> {
 
     // ── Statistics ────────────────────────────────────────────────────────────
     print_clustering_stats(&result.assignments, result.n_centroids, n_vectors);
+    println!(
+        "Mean squared distance to assigned centroid: {:.6}",
+        mean_squared_distance(&data_f16, dim, &result)
+    );
 
     // ── Save results ──────────────────────────────────────────────────────────
     println!("\n=== Saving Results ===");
 
-    let stem = format!(
-        "it{}_k{}_n{}",
-        args.tac_n_iter, result.n_centroids, n_vectors
-    );
+    let stem = format!("ep{}_k{}_n{}", epochs, result.n_centroids, n_vectors);
 
     save_centroids(
         &result.centroids,

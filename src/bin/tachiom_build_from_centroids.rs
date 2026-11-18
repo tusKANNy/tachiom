@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::time::Instant;
 
+use tachiom::KMeansSolver;
 use tachiom::hnsw::HNSWBuildConfiguration;
 use tachiom::tachiom::{Tachiom, TachiomBuildParams, TachiomInputDataset};
 use vectorium::{IndexSerializer, MultiVectorDataset, PlainMultiVecQuantizer};
@@ -45,9 +46,14 @@ struct Args {
     #[clap(long, default_value_t = 10_000_000)]
     pq_sample_size: usize,
 
-    /// K-means iterations for PQ subspace training
-    #[clap(long, default_value_t = 10)]
-    pq_n_iter: usize,
+    /// K-means budget for PQ subspace training, in epochs (one epoch assigns every training vector once).
+    /// Default: the solver's default, 10 for Lloyd and 2 for e-means
+    #[clap(long)]
+    pq_epochs: Option<f64>,
+
+    /// K-means solver for PQ subspace training (default: vectorium's default)
+    #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
+    pq_solver: KMeansSolver,
 
     /// Normalise residuals before PQ encoding (stores norms in payload)
     #[clap(long)]
@@ -82,7 +88,8 @@ fn main() -> anyhow::Result<()> {
     println!("Assignments:    {}", args.assignments_file);
     println!("Output:         {}", args.output_file);
     println!("PQ sample:      {}", args.pq_sample_size);
-    println!("PQ iters:       {}", args.pq_n_iter);
+    println!("PQ epochs:      {}", args.pq_solver.epochs(args.pq_epochs));
+    println!("PQ solver:      {:?}", args.pq_solver);
     println!("Normalize:      {}", args.normalize);
     println!("HNSW M:         {}", args.hnsw_m);
     println!("HNSW ef_constr: {}", args.ef_construction);
@@ -165,7 +172,8 @@ fn main() -> anyhow::Result<()> {
         token_ids,
         total_centroids: n_centroids, // unused by build_index_from_centroids, but required by the struct
         pq_sample_size: args.pq_sample_size,
-        pq_n_iter: args.pq_n_iter,
+        pq_epochs: args.pq_epochs,
+        pq_solver: args.pq_solver,
         normalize: args.normalize,
         pq_seed: Some(args.pq_seed),
         hnsw_params: HNSWBuildConfiguration::default()

@@ -2,7 +2,7 @@
 //!
 //! Unlike [TAC](crate::tac), this ignores token ids and clusters all token vectors
 //! together, so it applies to any multivector corpus (multilingual vocabularies,
-//! image patches, ...).  Training runs vectorium's Lloyd's k-means on a sample of
+//! image patches, ...).  Training runs vectorium's k-means ([`KMeansSolver`]) on a sample of
 //! the corpus; every vector is then assigned to its nearest centroid.
 //!
 //! [`KMeansAssign`] selects how the nearest centroid is found, both during training
@@ -18,14 +18,18 @@ use std::time::Instant;
 use vectorium::core::index::Index;
 use vectorium::core::vector::DenseVectorView;
 use vectorium::{
-    DenseDatasetGeneric, KMeans, KMeansBuilder, PlainDenseDataset, PlainDenseQuantizer,
-    SquaredEuclideanDistance,
+    DenseDatasetGeneric, KMeans, PlainDenseDataset, PlainDenseQuantizer, ScalarDenseDataset,
+    ScalarDenseDatasetGrowable, ScalarDenseQuantizer, SquaredEuclideanDistance,
 };
+
+use crate::solver::KMeansSolver;
 
 use crate::graph::Graph;
 use crate::hnsw::{HNSW, HNSWBuildConfiguration, HNSWSearchConfiguration};
 
-type Centroids = PlainDenseDataset<f16, SquaredEuclideanDistance>;
+/// Centroids: f32 means (and queries), stored as f16.
+type Centroids = ScalarDenseDataset<f32, f16, SquaredEuclideanDistance>;
+type Growable = ScalarDenseDatasetGrowable<f32, f16, SquaredEuclideanDistance>;
 type CentroidHnsw = HNSW<Centroids, Graph>;
 
 /// Nearest-centroid search used by k-means.
@@ -55,8 +59,11 @@ impl KMeansAssign {
 
 /// Parameters for [`train_kmeans`].
 pub struct KMeansParams {
-    /// Lloyd iterations (default: 10).
-    pub n_iter: usize,
+    /// Training budget in epochs (one epoch assigns every training vector once). `None` (default) uses the
+    /// solver's default: 10 for Lloyd, 2 for e-means (see [`KMeansSolver`]).
+    pub epochs: Option<f64>,
+    /// k-means solver (default: vectorium's default).
+    pub solver: KMeansSolver,
     /// Training sample size as a multiple of the centroid count: k-means trains on
     /// `min(n_vectors, points_per_centroid · k)` vectors (default: 64).
     pub points_per_centroid: usize,
@@ -69,7 +76,8 @@ pub struct KMeansParams {
 impl Default for KMeansParams {
     fn default() -> Self {
         Self {
-            n_iter: 10,
+            epochs: None,
+            solver: KMeansSolver::Default,
             points_per_centroid: 64,
             seed: 42,
             assign: KMeansAssign::hnsw_default(),
@@ -120,7 +128,7 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
         }
         values
     };
-    let train_set = Centroids::from_raw(
+    let train_set = PlainDenseDataset::<f16, SquaredEuclideanDistance>::from_raw(
         train_values.into_boxed_slice(),
         n_train,
         PlainDenseQuantizer::new(dim),
@@ -129,8 +137,9 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
 
     println!("[k-means] {n} vectors × dim={dim}, k={k}, training on {n_train}");
 
-    let kmeans = KMeansBuilder::new()
-        .n_iter(params.n_iter)
+    let kmeans = params
+        .solver
+        .builder(params.epochs)
         .n_redo(1)
         .seed(Some(params.seed))
         .build();
@@ -139,13 +148,19 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
     let (centroids, assignments) = match &params.assign {
         KMeansAssign::Flat => {
             let train_start = Instant::now();
-            let centroids = kmeans.train(&train_set, k, None);
+            let centroids: Centroids = kmeans
+                .train::<_, Growable>(&train_set, k, None, ScalarDenseQuantizer::new(dim))
+                .into();
             crate::timing::report("kmeans.train", train_start);
             drop(train_set);
 
             let assign_start = Instant::now();
-            let full = DenseDatasetGeneric::from_raw(data, n, PlainDenseQuantizer::new(dim));
-            let assignments = KMeans::compute_assignments(&full, &centroids, 0)
+            let full = DenseDatasetGeneric::from_raw(
+                data,
+                n,
+                PlainDenseQuantizer::<f16, SquaredEuclideanDistance>::new(dim),
+            );
+            let assignments = KMeans::compute_assignments(&full, &centroids)
                 .into_iter()
                 .map(|(_, c)| c as u32)
                 .collect();
@@ -154,13 +169,16 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
         }
         KMeansAssign::Hnsw { build, search } => {
             let train_start = Instant::now();
-            let centroids = kmeans.train_with_index::<CentroidHnsw, f16, f16>(
-                &train_set,
-                k,
-                None,
-                |c| CentroidHnsw::build_index(c, build),
-                search,
-            );
+            let centroids: Centroids = kmeans
+                .train_with_index::<_, Growable, CentroidHnsw>(
+                    &train_set,
+                    k,
+                    None,
+                    ScalarDenseQuantizer::new(dim),
+                    |c: Growable| CentroidHnsw::build_index(c.into(), build),
+                    search,
+                )
+                .into();
             crate::timing::report("kmeans.train", train_start);
             drop(train_set);
 

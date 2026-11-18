@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::time::Instant;
 
+use tachiom::KMeansSolver;
 use tachiom::hnsw::{HNSWBuildConfiguration, HNSWSearchConfiguration};
 use tachiom::kmeans::{KMeansAssign, KMeansParams};
 use tachiom::tachiom::{Clustering, TacParams, Tachiom, TachiomBuildParams, TachiomInputDataset};
@@ -53,9 +54,14 @@ struct Args {
     #[clap(long, value_enum, default_value_t = ClusteringArg::Tac)]
     clustering: ClusteringArg,
 
-    /// K-means iterations per token type in TAC
-    #[clap(long, default_value_t = 10)]
-    tac_n_iter: usize,
+    /// K-means budget per token type in TAC, in epochs (one epoch assigns every training vector once).
+    /// Default: the solver's default, 10 for Lloyd and 2 for e-means
+    #[clap(long)]
+    tac_epochs: Option<f64>,
+
+    /// K-means solver for TAC (default: vectorium's default)
+    #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
+    tac_solver: KMeansSolver,
 
     /// TAC micro threshold: token groups smaller than this get 1 centroid each
     #[clap(long, default_value_t = 128)]
@@ -65,9 +71,14 @@ struct Args {
     #[clap(long, default_value_t = 256)]
     tac_small_threshold: usize,
 
-    /// Lloyd iterations for k-means
-    #[clap(long, default_value_t = 10)]
-    kmeans_n_iter: usize,
+    /// K-means budget for --clustering kmeans, in epochs (one epoch assigns every training vector once).
+    /// Default: the solver's default, 10 for Lloyd and 2 for e-means
+    #[clap(long)]
+    kmeans_epochs: Option<f64>,
+
+    /// K-means solver for --clustering kmeans (default: vectorium's default)
+    #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
+    kmeans_solver: KMeansSolver,
 
     /// k-means trains on min(N, points_per_centroid × total_centroids) tokens
     #[clap(long, default_value_t = 64)]
@@ -97,9 +108,14 @@ struct Args {
     #[clap(long, default_value_t = 10_000_000)]
     pq_sample_size: usize,
 
-    /// K-means iterations for PQ subspace training
-    #[clap(long, default_value_t = 10)]
-    pq_n_iter: usize,
+    /// K-means budget for PQ subspace training, in epochs (one epoch assigns every training vector once).
+    /// Default: the solver's default, 10 for Lloyd and 2 for e-means
+    #[clap(long)]
+    pq_epochs: Option<f64>,
+
+    /// K-means solver for PQ subspace training (default: vectorium's default)
+    #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
+    pq_solver: KMeansSolver,
 
     /// Normalise residuals before PQ (stores norms in payload)
     #[clap(long)]
@@ -156,7 +172,11 @@ fn main() -> anyhow::Result<()> {
     println!("Total centroids: {}", args.total_centroids);
     println!("Clustering:      {:?}", args.clustering);
     println!("PQ sample:       {}", args.pq_sample_size);
-    println!("PQ iters:        {}", args.pq_n_iter);
+    println!("PQ epochs:       {}", args.pq_solver.epochs(args.pq_epochs));
+    println!(
+        "Solvers:         tac={:?} kmeans={:?} pq={:?}",
+        args.tac_solver, args.kmeans_solver, args.pq_solver
+    );
     println!("Normalize:       {}", args.normalize);
     println!("HNSW M:          {}", args.hnsw_m);
     println!("HNSW ef_constr:  {}", args.ef_construction);
@@ -240,13 +260,15 @@ fn main() -> anyhow::Result<()> {
                 "--clustering tac requires --token-ids-file"
             );
             Clustering::Tac(TacParams {
-                n_iter: args.tac_n_iter,
+                epochs: args.tac_epochs,
+                solver: args.tac_solver,
                 micro_threshold: Some(args.tac_micro_threshold),
                 small_threshold: Some(args.tac_small_threshold),
             })
         }
         ClusteringArg::Kmeans => Clustering::KMeans(KMeansParams {
-            n_iter: args.kmeans_n_iter,
+            epochs: args.kmeans_epochs,
+            solver: args.kmeans_solver,
             points_per_centroid: args.kmeans_points_per_centroid,
             seed: args.kmeans_seed,
             assign: match args.kmeans_assign {
@@ -268,7 +290,8 @@ fn main() -> anyhow::Result<()> {
         total_centroids: args.total_centroids,
         clustering,
         pq_sample_size: args.pq_sample_size,
-        pq_n_iter: args.pq_n_iter,
+        pq_epochs: args.pq_epochs,
+        pq_solver: args.pq_solver,
         normalize: args.normalize,
         pq_seed: Some(args.pq_seed),
         hnsw_params: HNSWBuildConfiguration::default()

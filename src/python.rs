@@ -5,6 +5,7 @@
 
 use crate::hnsw::{HNSWBuildConfiguration, HNSWSearchConfiguration};
 use crate::kmeans::{KMeansAssign, KMeansParams, KMeansResult, train_kmeans};
+use crate::solver::KMeansSolver;
 use crate::tac::{TacBuilder, TacResult};
 use crate::tachiom::{Clustering, TacParams, Tachiom, TachiomBuildParams, TachiomInputDataset};
 use vectorium::core::index::IndexStats;
@@ -189,11 +190,24 @@ fn auto_build_params(
 // Clustering kwargs
 // ============================================================================
 
+/// Parses a `*_solver` keyword argument: `None` is vectorium's default solver.
+fn parse_solver(solver: Option<&str>) -> PyResult<KMeansSolver> {
+    match solver {
+        None => Ok(KMeansSolver::Default),
+        Some(s) => KMeansSolver::parse(s).ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "solver must be \"default\", \"lloyd\" or \"emeans\", got {s:?}"
+            ))
+        }),
+    }
+}
+
 /// `kmeans_*` keyword arguments of `Tachiom.build*` (unprefixed on `KMeans`).
 /// `None` = default.
 #[derive(Default)]
 struct KMeansKwargs {
-    n_iter: Option<usize>,
+    epochs: Option<f64>,
+    solver: Option<String>,
     points_per_centroid: Option<usize>,
     seed: Option<u64>,
     assign: Option<String>,
@@ -204,7 +218,8 @@ struct KMeansKwargs {
 
 impl KMeansKwargs {
     fn any_set(&self) -> bool {
-        self.n_iter.is_some()
+        self.epochs.is_some()
+            || self.solver.is_some()
             || self.points_per_centroid.is_some()
             || self.seed.is_some()
             || self.assign.is_some()
@@ -243,7 +258,8 @@ impl KMeansKwargs {
             }
         };
         Ok(KMeansParams {
-            n_iter: self.n_iter.unwrap_or(defaults.n_iter),
+            epochs: self.epochs,
+            solver: parse_solver(self.solver.as_deref())?,
             points_per_centroid: self
                 .points_per_centroid
                 .unwrap_or(defaults.points_per_centroid),
@@ -255,7 +271,8 @@ impl KMeansKwargs {
 
 /// `tac_*` keyword arguments of `Tachiom.build*`.  `None` = default / auto.
 struct TacKwargs {
-    n_iter: Option<usize>,
+    epochs: Option<f64>,
+    solver: Option<String>,
     micro_threshold: Option<usize>,
     small_threshold: Option<usize>,
 }
@@ -272,8 +289,10 @@ fn resolve_clustering(
     kmeans: KMeansKwargs,
 ) -> PyResult<(Clustering, usize)> {
     require_nonzero_centroids("total_centroids", total_centroids)?;
-    let tac_set =
-        tac.n_iter.is_some() || tac.micro_threshold.is_some() || tac.small_threshold.is_some();
+    let tac_set = tac.epochs.is_some()
+        || tac.solver.is_some()
+        || tac.micro_threshold.is_some()
+        || tac.small_threshold.is_some();
     match clustering {
         "tac" => {
             if kmeans.any_set() {
@@ -296,7 +315,8 @@ fn resolve_clustering(
                 warn_saturation_cap(py, total_centroids.unwrap(), resolved.sat_cap)?;
             }
             let params = TacParams {
-                n_iter: tac.n_iter.unwrap_or(10),
+                epochs: tac.epochs,
+                solver: parse_solver(tac.solver.as_deref())?,
                 micro_threshold: Some(resolved.micro_threshold),
                 small_threshold: Some(resolved.small_threshold),
             };
@@ -351,7 +371,8 @@ impl PyTachiom {
         centroid_dim: usize,
         assignments: Vec<usize>,
         pq_sample_size: Option<usize>,
-        pq_n_iter: Option<usize>,
+        pq_epochs: Option<f64>,
+        pq_solver: Option<String>,
         normalize: Option<bool>,
         pq_seed: Option<u64>,
         hnsw_m: Option<usize>,
@@ -383,7 +404,8 @@ impl PyTachiom {
             token_ids,
             total_centroids: n_centroids, // unused by build_index_from_centroids, required by struct
             pq_sample_size: pq_sample_size.unwrap_or(10_000_000),
-            pq_n_iter: pq_n_iter.unwrap_or(10),
+            pq_epochs,
+            pq_solver: parse_solver(pq_solver.as_deref())?,
             normalize: normalize.unwrap_or(true),
             pq_seed: Some(pq_seed.unwrap_or(42)),
             hnsw_params: HNSWBuildConfiguration::default()
@@ -419,10 +441,12 @@ impl PyTachiom {
         *,
         total_centroids = None,
         clustering = "tac",
-        tac_n_iter = None,
+        tac_epochs = None,
+        tac_solver = None,
         tac_micro_threshold = None,
         tac_small_threshold = None,
-        kmeans_n_iter = None,
+        kmeans_epochs = None,
+        kmeans_solver = None,
         kmeans_points_per_centroid = None,
         kmeans_seed = None,
         kmeans_assign = None,
@@ -430,7 +454,8 @@ impl PyTachiom {
         kmeans_hnsw_ef_construction = None,
         kmeans_hnsw_ef_search = None,
         pq_sample_size = None,
-        pq_n_iter = None,
+        pq_epochs = None,
+        pq_solver = None,
         normalize = None,
         pq_seed = None,
         hnsw_m = None,
@@ -447,10 +472,12 @@ impl PyTachiom {
         doclens_path: &str,
         total_centroids: Option<usize>,
         clustering: &str,
-        tac_n_iter: Option<usize>,
+        tac_epochs: Option<f64>,
+        tac_solver: Option<String>,
         tac_micro_threshold: Option<usize>,
         tac_small_threshold: Option<usize>,
-        kmeans_n_iter: Option<usize>,
+        kmeans_epochs: Option<f64>,
+        kmeans_solver: Option<String>,
         kmeans_points_per_centroid: Option<usize>,
         kmeans_seed: Option<u64>,
         kmeans_assign: Option<String>,
@@ -458,7 +485,8 @@ impl PyTachiom {
         kmeans_hnsw_ef_construction: Option<usize>,
         kmeans_hnsw_ef_search: Option<usize>,
         pq_sample_size: Option<usize>,
-        pq_n_iter: Option<usize>,
+        pq_epochs: Option<f64>,
+        pq_solver: Option<String>,
         normalize: Option<bool>,
         pq_seed: Option<u64>,
         hnsw_m: Option<usize>,
@@ -468,7 +496,6 @@ impl PyTachiom {
     ) -> PyResult<Self> {
         warn_pq_subspaces(py, pq_subspaces)?;
         let pq_sample_size = pq_sample_size.unwrap_or(10_000_000);
-        let pq_n_iter = pq_n_iter.unwrap_or(10);
         let normalize = normalize.unwrap_or(true);
         let pq_seed = pq_seed.unwrap_or(42);
         let hnsw_m = hnsw_m.unwrap_or(32);
@@ -486,12 +513,14 @@ impl PyTachiom {
             n_tokens,
             total_centroids,
             TacKwargs {
-                n_iter: tac_n_iter,
+                epochs: tac_epochs,
+                solver: tac_solver,
                 micro_threshold: tac_micro_threshold,
                 small_threshold: tac_small_threshold,
             },
             KMeansKwargs {
-                n_iter: kmeans_n_iter,
+                epochs: kmeans_epochs,
+                solver: kmeans_solver,
                 points_per_centroid: kmeans_points_per_centroid,
                 seed: kmeans_seed,
                 assign: kmeans_assign,
@@ -506,7 +535,8 @@ impl PyTachiom {
             total_centroids,
             clustering,
             pq_sample_size,
-            pq_n_iter,
+            pq_epochs,
+            pq_solver: parse_solver(pq_solver.as_deref())?,
             normalize,
             pq_seed: Some(pq_seed),
             hnsw_params: HNSWBuildConfiguration::default()
@@ -534,10 +564,12 @@ impl PyTachiom {
         *,
         total_centroids = None,
         clustering = "tac",
-        tac_n_iter = None,
+        tac_epochs = None,
+        tac_solver = None,
         tac_micro_threshold = None,
         tac_small_threshold = None,
-        kmeans_n_iter = None,
+        kmeans_epochs = None,
+        kmeans_solver = None,
         kmeans_points_per_centroid = None,
         kmeans_seed = None,
         kmeans_assign = None,
@@ -545,7 +577,8 @@ impl PyTachiom {
         kmeans_hnsw_ef_construction = None,
         kmeans_hnsw_ef_search = None,
         pq_sample_size = None,
-        pq_n_iter = None,
+        pq_epochs = None,
+        pq_solver = None,
         normalize = None,
         pq_seed = None,
         hnsw_m = None,
@@ -562,10 +595,12 @@ impl PyTachiom {
         doclens: PyReadonlyArray1<'_, i32>,
         total_centroids: Option<usize>,
         clustering: &str,
-        tac_n_iter: Option<usize>,
+        tac_epochs: Option<f64>,
+        tac_solver: Option<String>,
         tac_micro_threshold: Option<usize>,
         tac_small_threshold: Option<usize>,
-        kmeans_n_iter: Option<usize>,
+        kmeans_epochs: Option<f64>,
+        kmeans_solver: Option<String>,
         kmeans_points_per_centroid: Option<usize>,
         kmeans_seed: Option<u64>,
         kmeans_assign: Option<String>,
@@ -573,7 +608,8 @@ impl PyTachiom {
         kmeans_hnsw_ef_construction: Option<usize>,
         kmeans_hnsw_ef_search: Option<usize>,
         pq_sample_size: Option<usize>,
-        pq_n_iter: Option<usize>,
+        pq_epochs: Option<f64>,
+        pq_solver: Option<String>,
         normalize: Option<bool>,
         pq_seed: Option<u64>,
         hnsw_m: Option<usize>,
@@ -583,7 +619,6 @@ impl PyTachiom {
     ) -> PyResult<Self> {
         warn_pq_subspaces(py, pq_subspaces)?;
         let pq_sample_size = pq_sample_size.unwrap_or(10_000_000);
-        let pq_n_iter = pq_n_iter.unwrap_or(10);
         let normalize = normalize.unwrap_or(true);
         let pq_seed = pq_seed.unwrap_or(42);
         let hnsw_m = hnsw_m.unwrap_or(32);
@@ -606,12 +641,14 @@ impl PyTachiom {
             n_tokens,
             total_centroids,
             TacKwargs {
-                n_iter: tac_n_iter,
+                epochs: tac_epochs,
+                solver: tac_solver,
                 micro_threshold: tac_micro_threshold,
                 small_threshold: tac_small_threshold,
             },
             KMeansKwargs {
-                n_iter: kmeans_n_iter,
+                epochs: kmeans_epochs,
+                solver: kmeans_solver,
                 points_per_centroid: kmeans_points_per_centroid,
                 seed: kmeans_seed,
                 assign: kmeans_assign,
@@ -626,7 +663,8 @@ impl PyTachiom {
             total_centroids,
             clustering,
             pq_sample_size,
-            pq_n_iter,
+            pq_epochs,
+            pq_solver: parse_solver(pq_solver.as_deref())?,
             normalize,
             pq_seed: Some(pq_seed),
             hnsw_params: HNSWBuildConfiguration::default()
@@ -650,7 +688,8 @@ impl PyTachiom {
         assignments_path,
         *,
         pq_sample_size = None,
-        pq_n_iter = None,
+        pq_epochs = None,
+        pq_solver = None,
         normalize = None,
         pq_seed = None,
         hnsw_m = None,
@@ -668,7 +707,8 @@ impl PyTachiom {
         centroids_path: &str,
         assignments_path: &str,
         pq_sample_size: Option<usize>,
-        pq_n_iter: Option<usize>,
+        pq_epochs: Option<f64>,
+        pq_solver: Option<String>,
         normalize: Option<bool>,
         pq_seed: Option<u64>,
         hnsw_m: Option<usize>,
@@ -689,7 +729,8 @@ impl PyTachiom {
             centroid_dim,
             assignments,
             pq_sample_size,
-            pq_n_iter,
+            pq_epochs,
+            pq_solver,
             normalize,
             pq_seed,
             hnsw_m,
@@ -711,7 +752,8 @@ impl PyTachiom {
         assignments,
         *,
         pq_sample_size = None,
-        pq_n_iter = None,
+        pq_epochs = None,
+        pq_solver = None,
         normalize = None,
         pq_seed = None,
         hnsw_m = None,
@@ -729,7 +771,8 @@ impl PyTachiom {
         centroids: PyReadonlyArray2<'_, f32>,
         assignments: PyReadonlyArray1<'_, u32>,
         pq_sample_size: Option<usize>,
-        pq_n_iter: Option<usize>,
+        pq_epochs: Option<f64>,
+        pq_solver: Option<String>,
         normalize: Option<bool>,
         pq_seed: Option<u64>,
         hnsw_m: Option<usize>,
@@ -758,7 +801,8 @@ impl PyTachiom {
             centroid_dim,
             assignments,
             pq_sample_size,
-            pq_n_iter,
+            pq_epochs,
+            pq_solver,
             normalize,
             pq_seed,
             hnsw_m,
@@ -1108,7 +1152,8 @@ impl PyTachiom {
 #[pyclass(name = "Tac", module = "tachiom", unsendable)]
 pub struct PyTac {
     budget: Option<usize>,
-    n_iter: usize,
+    epochs: Option<f64>,
+    solver: KMeansSolver,
     verbose: bool,
     max_sample_size: Option<usize>,
     micro_threshold: Option<usize>,
@@ -1127,24 +1172,26 @@ impl PyTac {
 #[pymethods]
 impl PyTac {
     #[new]
-    #[pyo3(signature = (n_centroids = None, *, n_iter = None, verbose = false, max_sample_size = None, micro_threshold = None, small_threshold = None))]
+    #[pyo3(signature = (n_centroids = None, *, epochs = None, solver = None, verbose = false, max_sample_size = None, micro_threshold = None, small_threshold = None))]
     fn new(
         n_centroids: Option<usize>,
-        n_iter: Option<usize>,
+        epochs: Option<f64>,
+        solver: Option<String>,
         verbose: bool,
         max_sample_size: Option<usize>,
         micro_threshold: Option<usize>,
         small_threshold: Option<usize>,
-    ) -> Self {
-        PyTac {
+    ) -> PyResult<Self> {
+        Ok(PyTac {
             budget: n_centroids,
-            n_iter: n_iter.unwrap_or(10),
+            epochs,
+            solver: parse_solver(solver.as_deref())?,
             verbose,
             max_sample_size,
             micro_threshold,
             small_threshold,
             result: None,
-        }
+        })
     }
 
     /// Run Token-Aware Clustering on the given .npy inputs.
@@ -1174,9 +1221,12 @@ impl PyTac {
         });
 
         let mut tac_builder = TacBuilder::new()
-            .n_iter(self.n_iter)
+            .solver(self.solver)
             .verbose(self.verbose)
             .max_sample_size(self.max_sample_size);
+        if let Some(e) = self.epochs {
+            tac_builder = tac_builder.epochs(e);
+        }
         if let Some(v) = self.micro_threshold {
             tac_builder = tac_builder.micro_threshold(v);
         }
@@ -1268,7 +1318,8 @@ impl PyKMeans {
     #[pyo3(signature = (
         n_centroids = None,
         *,
-        n_iter = None,
+        epochs = None,
+        solver = None,
         points_per_centroid = None,
         seed = None,
         assign = None,
@@ -1279,7 +1330,8 @@ impl PyKMeans {
     #[allow(clippy::too_many_arguments)]
     fn new(
         n_centroids: Option<usize>,
-        n_iter: Option<usize>,
+        epochs: Option<f64>,
+        solver: Option<String>,
         points_per_centroid: Option<usize>,
         seed: Option<u64>,
         assign: Option<String>,
@@ -1289,7 +1341,8 @@ impl PyKMeans {
     ) -> PyResult<Self> {
         require_nonzero_centroids("n_centroids", n_centroids)?;
         let params = KMeansKwargs {
-            n_iter,
+            epochs,
+            solver,
             points_per_centroid,
             seed,
             assign,

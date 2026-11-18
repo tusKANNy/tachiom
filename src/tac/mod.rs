@@ -11,7 +11,7 @@
 //! ```ignore
 //! use tachiom::tac::TacBuilder;
 //!
-//! let tac = TacBuilder::new().n_iter(20).verbose(true).build();
+//! let tac = TacBuilder::new().epochs(20.0).verbose(true).build();
 //! let result = tac.train(&data_f16, dim, &token_ids, total_centroids);
 //! // result.centroids  – flat Vec<f16> of all centroids, ordered by token id
 //! // result.assignments – global assignment: token_vec[i] -> centroid idx
@@ -28,9 +28,14 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use vectorium::{
-    Dataset, KMeans, KMeansBuilder, PlainDenseDataset, PlainDenseQuantizer,
-    SquaredEuclideanDistance,
+    Dataset, KMeans, PlainDenseDataset, PlainDenseQuantizer, ScalarDenseDataset,
+    ScalarDenseDatasetGrowable, ScalarDenseQuantizer, SquaredEuclideanDistance,
 };
+
+use crate::solver::KMeansSolver;
+
+/// k-means centroids: f32 means, stored as f16.
+type Growable = ScalarDenseDatasetGrowable<f32, f16, SquaredEuclideanDistance>;
 
 pub use strategies::allocate_centroids_damped_spread;
 pub use strategies::compute_spread_measure;
@@ -71,7 +76,8 @@ pub struct TacResult {
 
 /// Builder for [`TokenAwareClustering`].
 pub struct TacBuilder {
-    n_iter: usize,
+    epochs: Option<f64>,
+    solver: KMeansSolver,
     verbose: bool,
     /// Cap on training vectors per token group.
     /// `None` (default) = automatic formula: sample when group > 1M.
@@ -85,7 +91,8 @@ pub struct TacBuilder {
 impl Default for TacBuilder {
     fn default() -> Self {
         TacBuilder {
-            n_iter: 10,
+            epochs: None,
+            solver: KMeansSolver::Default,
             verbose: false,
             max_sample_size: None,
             micro_threshold: None,
@@ -99,9 +106,16 @@ impl TacBuilder {
         TacBuilder::default()
     }
 
-    /// Number of k-means iterations per token group (default: 10).
-    pub fn n_iter(mut self, n_iter: usize) -> Self {
-        self.n_iter = n_iter;
+    /// k-means budget per token group, in epochs (one epoch assigns every training vector
+    /// once). Unset, the solver's default: 10 for Lloyd, 2 for e-means (see [`KMeansSolver`]).
+    pub fn epochs(mut self, epochs: f64) -> Self {
+        self.epochs = Some(epochs);
+        self
+    }
+
+    /// k-means solver for the per-token groups (default: vectorium's default).
+    pub fn solver(mut self, solver: KMeansSolver) -> Self {
+        self.solver = solver;
         self
     }
 
@@ -114,7 +128,7 @@ impl TacBuilder {
     /// Maximum training vectors per token group.
     ///
     /// - `None` (default): auto formula — when a group exceeds 1M vectors, sample
-    ///   `min(10M, max(1M, 2·39·k, n/(2·n_iter)))` vectors for training, then
+    ///   `min(10M, max(1M, 2·39·k, n/(2·epochs)))` vectors for training, then
     ///   run the final assignment pass on the full group.
     /// - `Some(usize::MAX)`: disable sampling, always train on every vector.
     /// - `Some(n)`: hard cap at `n` training vectors regardless of group size.
@@ -139,7 +153,8 @@ impl TacBuilder {
 
     pub fn build(self) -> TokenAwareClustering {
         TokenAwareClustering {
-            n_iter: self.n_iter,
+            epochs: self.epochs,
+            solver: self.solver,
             verbose: self.verbose,
             max_sample_size: self.max_sample_size,
             micro_threshold: self.micro_threshold,
@@ -156,7 +171,8 @@ impl TacBuilder {
 ///
 /// Instantiate via [`TacBuilder`] and call [`train`](TokenAwareClustering::train).
 pub struct TokenAwareClustering {
-    n_iter: usize,
+    epochs: Option<f64>,
+    solver: KMeansSolver,
     verbose: bool,
     max_sample_size: Option<usize>,
     micro_threshold: Option<usize>,
@@ -267,7 +283,8 @@ impl TokenAwareClustering {
                 &all_indices,
                 dim,
                 total_centroids,
-                self.n_iter,
+                self.epochs,
+                self.solver,
                 self.max_sample_size,
             );
             return TacResult {
@@ -310,7 +327,8 @@ impl TokenAwareClustering {
                     indices,
                     dim,
                     k,
-                    self.n_iter,
+                    self.epochs,
+                    self.solver,
                     self.max_sample_size,
                 );
                 (token_id, centroids, local_assignments)
@@ -385,7 +403,8 @@ fn train_kmeans_for_token(
     indices: &[usize],
     dim: usize,
     k: usize,
-    n_iter: usize,
+    epochs: Option<f64>,
+    solver: KMeansSolver,
     max_sample_size: Option<usize>,
 ) -> (PlainDenseDataset<f16, SquaredEuclideanDistance>, Vec<u32>) {
     let encoder = PlainDenseQuantizer::<f16, SquaredEuclideanDistance>::new(dim);
@@ -400,7 +419,7 @@ fn train_kmeans_for_token(
     let n = indices.len();
 
     // Determine training sample size.
-    // When n > 1M, cap training at min(10M, n, max(1M, 2·39·k, n/(2·n_iter)))
+    // When n > 1M, cap training at min(10M, n, max(1M, 2·39·k, n/(2·epochs)))
     // so that head tokens (millions of vectors, small k) don't dominate training time.
     const AUTO_THRESHOLD: usize = 1_000_000;
     const AUTO_MAX: usize = 10_000_000;
@@ -411,7 +430,7 @@ fn train_kmeans_for_token(
         None => {
             if n > AUTO_THRESHOLD {
                 let by_cluster = 2 * MIN_PTS_PER_CENTROID * k;
-                let by_iter = n / (2 * n_iter).max(1);
+                let by_iter = (n as f64 / (2.0 * solver.epochs(epochs)).max(1.0)) as usize;
                 let candidate = AUTO_THRESHOLD.max(by_cluster).max(by_iter);
                 AUTO_MAX.min(n).min(candidate)
             } else {
@@ -431,7 +450,8 @@ fn train_kmeans_for_token(
         encoder.clone(),
     );
 
-    let centroids = if training_n < n {
+    let centroid_encoder = ScalarDenseQuantizer::<f32, f16, SquaredEuclideanDistance>::new(dim);
+    let centroids: ScalarDenseDataset<f32, f16, SquaredEuclideanDistance> = if training_n < n {
         // Fixed seed for reproducible subsampling.
         let mut rng = StdRng::seed_from_u64(525);
         let local_indices: Vec<usize> = (0..n).collect();
@@ -448,29 +468,38 @@ fn train_kmeans_for_token(
         let training_dataset = PlainDenseDataset::<f16, SquaredEuclideanDistance>::from_raw(
             train_data.into_boxed_slice(),
             training_n,
-            encoder,
+            encoder.clone(),
         );
         // Fixed seed for reproducible centroid initialization.
-        KMeansBuilder::new()
-            .n_iter(n_iter)
+        solver
+            .builder(epochs)
             .n_redo(1)
             .seed(Some(524))
             .verbose(false)
             .build()
-            .train(&training_dataset, k, None)
+            .train::<_, Growable>(&training_dataset, k, None, centroid_encoder)
+            .into()
     } else {
         // Fixed seed for reproducible centroid initialization.
-        KMeansBuilder::new()
-            .n_iter(n_iter)
+        solver
+            .builder(epochs)
             .n_redo(1)
             .seed(Some(524))
             .verbose(false)
             .build()
-            .train(&full_dataset, k, None)
+            .train::<_, Growable>(&full_dataset, k, None, centroid_encoder)
+            .into()
     };
 
+    // Same f16 values, as the plain f16 dataset callers expect.
+    let centroids = PlainDenseDataset::<f16, SquaredEuclideanDistance>::from_raw(
+        centroids.values().to_vec().into_boxed_slice(),
+        k,
+        PlainDenseQuantizer::new(dim),
+    );
+
     // Assign every vector in the full group to its nearest centroid.
-    let assignments: Vec<u32> = KMeans::compute_assignments(&full_dataset, &centroids, 50_000)
+    let assignments: Vec<u32> = KMeans::compute_assignments(&full_dataset, &centroids)
         .iter()
         .map(|&(_, idx)| idx as u32)
         .collect();

@@ -38,9 +38,11 @@ index = tachiom.Tachiom.build(
     token_ids_path,
     doclens_path,
     total_centroids=4_194_304,   # coarse centroid budget
-    tac_n_iter=10,               # k-means iterations inside TAC
+    tac_epochs=10,               # k-means epochs inside TAC (default: solver's own)
+    tac_solver="lloyd",          # "lloyd" or "emeans" (default: vectorium's default)
     pq_sample_size=10_000_000,   # training vectors for the PQ encoder
-    pq_n_iter=10,                # PQ k-means iterations
+    pq_epochs=10,                # PQ k-means epochs (default: solver's own)
+    pq_solver="lloyd",           # "lloyd" or "emeans" (default: vectorium's default)
     normalize=True,             # L2-normalise residuals before PQ encoding
     pq_seed=42,
     hnsw_m=32,                   # HNSW neighbour count
@@ -69,7 +71,8 @@ index = tachiom.Tachiom.build(
     None,                        # token ids: ignored by k-means
     doclens_path,
     clustering="kmeans",
-    kmeans_n_iter=10,            # Lloyd iterations
+    kmeans_epochs=10,            # k-means epochs (default: solver's own)
+    kmeans_solver="lloyd",       # "lloyd" or "emeans" (default: vectorium's default)
     kmeans_points_per_centroid=64,  # train on min(N, 64 × total_centroids) sampled tokens
     kmeans_assign="hnsw",        # nearest-centroid search: "hnsw" or "flat" (exact)
     kmeans_hnsw_m=32,            # HNSW parameters (assign="hnsw" only)
@@ -115,7 +118,7 @@ index = tachiom.Tachiom.build_from_centroids(
     assignments_path,  # [N]      u32 .npy, values < K
     center_dataset=True,  # as in build(): shift vectors and centroids by the dataset mean
     pq_sample_size=10_000_000,
-    pq_n_iter=10,
+    pq_epochs=10,
     normalize=True,
     pq_seed=42,
     hnsw_m=32,
@@ -214,7 +217,8 @@ Use it when you want to inspect or reuse the clustering step independently of th
 ```python
 tac = tachiom.Tac(
     n_centroids=2_000_000,  # total centroid budget
-    n_iter=10,              # k-means iterations per token group
+    epochs=10,              # k-means epochs per token group (default: solver's own)
+    solver="lloyd",         # "lloyd" or "emeans" (default: vectorium's default)
     verbose=True,
     max_sample_size=None,   # None = auto (cap at ~1M per group)
 )
@@ -255,7 +259,7 @@ index = tachiom.Tachiom.build_from_centroids(
 ```python
 km = tachiom.KMeans(
     n_centroids=None,          # None = auto (2^round(log2(N/128)))
-    n_iter=10,
+    epochs=10,
     points_per_centroid=64,
     seed=42,
     assign="hnsw",             # or "flat"

@@ -13,6 +13,7 @@ use crate::hnsw::{
     EarlyTerminationStrategy, HNSW, HNSWBuildConfiguration, HNSWSearchConfiguration,
 };
 use crate::kmeans::{KMeansParams, train_kmeans};
+use crate::solver::KMeansSolver;
 use crate::tac::TacBuilder;
 
 use vectorium::core::dataset::ScoredVector;
@@ -465,14 +466,18 @@ impl<const M: usize> Tachiom<M> {
 
         // Pass the pre-selected training subset; sample_size >= n_train so no resampling occurs.
         let n_train = pq_train_flat.len() / token_dim;
-        let encoder = MultiVecTwoLevelProductQuantizer::<M, f16>::train_from_coarse(
+        let pq_kmeans = params
+            .pq_solver
+            .builder(params.pq_epochs)
+            .seed(params.pq_seed)
+            .build();
+        let encoder = MultiVecTwoLevelProductQuantizer::<M, f16>::train_from_coarse_with_kmeans(
             coarse_centroids_ds,
             &pq_train_flat,
             &pq_train_assignments,
             n_train,
-            params.pq_n_iter,
             params.normalize,
-            params.pq_seed,
+            &pq_kmeans,
         );
         crate::timing::report("pq_training", pq_train_start);
 
@@ -968,8 +973,12 @@ pub struct TachiomBuildParams {
     /// Number of tokens sampled for PQ training.
     pub pq_sample_size: usize,
 
-    /// K-means iterations for PQ subspace training (default: 10).
-    pub pq_n_iter: usize,
+    /// PQ subspace k-means budget in epochs (one epoch assigns every training vector once). `None` (default) uses the
+    /// solver's default: 10 for Lloyd, 2 for e-means (see [`KMeansSolver`]).
+    pub pq_epochs: Option<f64>,
+
+    /// k-means solver for the PQ codebooks (default: vectorium's default).
+    pub pq_solver: KMeansSolver,
 
     /// Normalise residuals before PQ encoding; embeds original norm in payload.
     pub normalize: bool,
@@ -993,7 +1002,8 @@ impl Default for TachiomBuildParams {
             total_centroids: 4_194_304,
             clustering: Clustering::Tac(TacParams::default()),
             pq_sample_size: 10_000_000,
-            pq_n_iter: 10,
+            pq_epochs: None,
+            pq_solver: KMeansSolver::Default,
             normalize: false,
             pq_seed: Some(42),
             hnsw_params: HNSWBuildConfiguration::default()
@@ -1014,8 +1024,12 @@ pub enum Clustering {
 
 /// Parameters for [`Clustering::Tac`].
 pub struct TacParams {
-    /// K-means iterations per token type (default: 10).
-    pub n_iter: usize,
+    /// k-means budget per token type in epochs (one epoch assigns every training vector once). `None` (default) uses the
+    /// solver's default: 10 for Lloyd, 2 for e-means (see [`KMeansSolver`]).
+    pub epochs: Option<f64>,
+
+    /// k-means solver for the per-token groups (default: vectorium's default).
+    pub solver: KMeansSolver,
 
     /// Token groups smaller than this receive 1 centroid each (`None` = use TAC default of 128).
     pub micro_threshold: Option<usize>,
@@ -1027,7 +1041,8 @@ pub struct TacParams {
 impl Default for TacParams {
     fn default() -> Self {
         Self {
-            n_iter: 10,
+            epochs: None,
+            solver: KMeansSolver::Default,
             micro_threshold: None,
             small_threshold: None,
         }
@@ -1150,7 +1165,10 @@ impl<const M: usize> Tachiom<M> {
                     n_tokens
                 );
                 println!("[Tachiom::build_index] Step 1: Token-Aware Clustering...");
-                let mut tac_builder = TacBuilder::new().n_iter(tac_params.n_iter);
+                let mut tac_builder = TacBuilder::new().solver(tac_params.solver);
+                if let Some(epochs) = tac_params.epochs {
+                    tac_builder = tac_builder.epochs(epochs);
+                }
                 if let Some(v) = tac_params.micro_threshold {
                     tac_builder = tac_builder.micro_threshold(v);
                 }

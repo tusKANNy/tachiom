@@ -35,7 +35,8 @@ class Tac:
         self,
         n_centroids: int | None = None,
         *,
-        n_iter: int | None = None,
+        epochs: float | None = None,
+        solver: str | None = None,
         verbose: bool = False,
         max_sample_size: Optional[int] = None,
         micro_threshold: Optional[int] = None,
@@ -44,14 +45,16 @@ class Tac:
         """
         All keyword arguments default to None — resolved at train() time:
             n_centroids:     auto (2^round(log2(n_tokens/128)), floored to TAC minimum)
-            n_iter:          10
+            epochs:          solver default (10 for Lloyd, 2 for e-means)
             micro_threshold: auto (2^round(log2(n_tokens^0.25)) clamped to [32, 128])
             small_threshold: auto (2 × micro_threshold)
             max_sample_size: None — use all vectors per token group
 
         Args:
             n_centroids: Total centroid budget distributed across all token types.
-            n_iter: K-means iterations per token group.
+            epochs: K-means budget per token group, in epochs (one epoch assigns every
+                training vector once).
+            solver: K-means solver, "lloyd" or "emeans" (default: vectorium's default).
             verbose: Print progress output.
             max_sample_size: Cap on training vectors per token group.
             micro_threshold: Token groups with fewer occurrences get 1 centroid.
@@ -117,7 +120,8 @@ class KMeans:
         self,
         n_centroids: int | None = None,
         *,
-        n_iter: int | None = None,
+        epochs: float | None = None,
+        solver: str | None = None,
         points_per_centroid: int | None = None,
         seed: int | None = None,
         assign: str | None = None,
@@ -128,7 +132,7 @@ class KMeans:
         """
         All arguments default to None, which selects:
             n_centroids:          auto (2^round(log2(n_tokens/128)))
-            n_iter:               10
+            epochs:               solver default (10 for Lloyd, 2 for e-means)
             points_per_centroid:  64 (train on min(N, 64 × n_centroids) sampled tokens)
             seed:                 42
             assign:               "hnsw"
@@ -138,7 +142,8 @@ class KMeans:
 
         Args:
             n_centroids: Number of centroids (> 0).
-            n_iter: Lloyd iterations.
+            epochs: K-means budget in epochs (one epoch assigns every training vector once).
+            solver: K-means solver, "lloyd" or "emeans" (default: vectorium's default).
             points_per_centroid: Training-sample size as a multiple of n_centroids (> 0);
                 every token is assigned to its nearest centroid afterwards.
             seed: Seed for sampling and initialisation.
@@ -198,10 +203,12 @@ class Tachiom:
         *,
         total_centroids: int | None = None,
         clustering: str = "tac",
-        tac_n_iter: int | None = None,
+        tac_epochs: float | None = None,
+        tac_solver: str | None = None,
         tac_micro_threshold: int | None = None,
         tac_small_threshold: int | None = None,
-        kmeans_n_iter: int | None = None,
+        kmeans_epochs: float | None = None,
+        kmeans_solver: str | None = None,
         kmeans_points_per_centroid: int | None = None,
         kmeans_seed: int | None = None,
         kmeans_assign: str | None = None,
@@ -209,7 +216,8 @@ class Tachiom:
         kmeans_hnsw_ef_construction: int | None = None,
         kmeans_hnsw_ef_search: int | None = None,
         pq_sample_size: int | None = None,
-        pq_n_iter: int | None = None,
+        pq_epochs: float | None = None,
+        pq_solver: str | None = None,
         normalize: bool | None = None,
         pq_seed: int | None = None,
         hnsw_m: int | None = None,
@@ -233,13 +241,14 @@ class Tachiom:
         All keyword arguments default to None, which selects the built-in default:
             total_centroids:     auto (2^round(log2(n_tokens/128)); for "tac" also
                                  floored to the TAC minimum)
-            tac_n_iter:          10
+            tac_epochs:          solver default (10 for Lloyd, 2 for e-means)
             tac_micro_threshold: auto (2^round(log2(n_tokens^0.25)) clamped to [32, 128])
             tac_small_threshold: auto (2 × tac_micro_threshold)
-            kmeans_*:            see KMeans (n_iter=10, points_per_centroid=64,
+            *_solver:            vectorium's default k-means solver ("lloyd" or "emeans")
+            kmeans_*:            see KMeans (epochs=solver default, points_per_centroid=64,
                                  seed=42, assign="hnsw", hnsw m=32/ef_c=200/ef_s=16)
             pq_sample_size:      10_000_000
-            pq_n_iter:           10
+            pq_epochs:           solver default (10 for Lloyd, 2 for e-means)
             normalize:           True (L2-normalise residuals before PQ encoding)
             pq_seed:             42
             hnsw_m:              32
@@ -258,10 +267,12 @@ class Tachiom:
         *,
         total_centroids: int | None = None,
         clustering: str = "tac",
-        tac_n_iter: int | None = None,
+        tac_epochs: float | None = None,
+        tac_solver: str | None = None,
         tac_micro_threshold: int | None = None,
         tac_small_threshold: int | None = None,
-        kmeans_n_iter: int | None = None,
+        kmeans_epochs: float | None = None,
+        kmeans_solver: str | None = None,
         kmeans_points_per_centroid: int | None = None,
         kmeans_seed: int | None = None,
         kmeans_assign: str | None = None,
@@ -269,7 +280,8 @@ class Tachiom:
         kmeans_hnsw_ef_construction: int | None = None,
         kmeans_hnsw_ef_search: int | None = None,
         pq_sample_size: int | None = None,
-        pq_n_iter: int | None = None,
+        pq_epochs: float | None = None,
+        pq_solver: str | None = None,
         normalize: bool | None = None,
         pq_seed: int | None = None,
         hnsw_m: int | None = None,
@@ -304,7 +316,8 @@ class Tachiom:
         assignments_path: str,
         *,
         pq_sample_size: int | None = None,
-        pq_n_iter: int | None = None,
+        pq_epochs: float | None = None,
+        pq_solver: str | None = None,
         normalize: bool | None = None,
         pq_seed: int | None = None,
         hnsw_m: int | None = None,
@@ -344,7 +357,8 @@ class Tachiom:
         assignments: NDArray[np.uint32],
         *,
         pq_sample_size: int | None = None,
-        pq_n_iter: int | None = None,
+        pq_epochs: float | None = None,
+        pq_solver: str | None = None,
         normalize: bool | None = None,
         pq_seed: int | None = None,
         hnsw_m: int | None = None,

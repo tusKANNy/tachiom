@@ -31,9 +31,9 @@ query_ids = "queries_ids.npy"   # optional: maps integer query indices to string
 
 [build_params]
 total-centroids = 2097152   # 2M centroid budget for TAC
-tac-n-iter      = 10
+tac-epochs      = 10
 pq-sample-size  = 10000000
-pq-n-iter       = 10
+pq-epochs       = 10
 normalize       = true
 pq-seed         = 42
 hnsw-m          = 32

@@ -981,8 +981,8 @@ dependencies = [
 
 [[package]]
 name = "kannolo"
-version = "0.11.2"
-source = "git+https://github.com/TusKANNy/kannolo.git?tag=v0.11.2#f1bb5ac9879ed4c305380dca5b36da73579a71ff"
+version = "0.16.0"
+source = "git+https://github.com/TusKANNy/kannolo.git?tag=v0.16.0#301854a55c4a1f99456df9a02fbaaa875a441507"
 dependencies = [
  "bincode 2.0.1",
  "byteorder",
@@ -2183,8 +2183,8 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vectorium"
-version = "0.9.1"
-source = "git+https://github.com/TusKANNy/vectorium.git?tag=v0.9.1#68c3d7a737769ffb43cc50755910cdd3f3feede1"
+version = "0.12.0"
+source = "git+https://github.com/TusKANNy/vectorium.git?tag=v0.12.0#1ac1b82e877369a2910b8e638e5b1884d8a3ef0e"
 dependencies = [
  "bincode 2.0.1",
  "bytemuck",

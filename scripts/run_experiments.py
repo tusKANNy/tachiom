@@ -190,8 +190,9 @@ def build_index(configs, experiment_dir):
         f"--doclens-file {doclens_file}",
         f"--output-file {index_file}",
     ]
-    for flag in ["total-centroids", "tac-n-iter", "tac-micro-threshold", "tac-small-threshold",
-                 "pq-sample-size", "pq-n-iter", "pq-seed", "hnsw-m", "ef-construction", "pq-subspaces"]:
+    for flag in ["total-centroids", "tac-epochs", "tac-solver", "tac-micro-threshold",
+                 "tac-small-threshold", "pq-sample-size", "pq-epochs", "pq-solver", "pq-seed",
+                 "hnsw-m", "ef-construction", "pq-subspaces"]:
         if flag in bp:
             parts.append(f"--{flag} {bp[flag]}")
     if bp.get("normalize", False):

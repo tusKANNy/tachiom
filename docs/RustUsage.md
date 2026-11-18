@@ -30,7 +30,8 @@ Use this when you want to inspect or reuse the clustering step independently of 
 | `-i`, `--vectors-file` | *(required)* | `[N, dim]` f16 token vectors |
 | `--token-ids-file` | *(required)* | `[N]` token-type IDs (i64 or u32) |
 | `--total-centroids` | *(required)* | Total centroid budget distributed across all token types |
-| `--tac-n-iter` | `10` | K-means iterations per token group |
+| `--tac-epochs` | solver default (10 Lloyd, 2 e-means) | K-means epochs per token group (one epoch = one pass over the group) |
+| `--tac-solver` | vectorium's default | `lloyd` or `emeans` |
 | `-o`, `--output-dir` | *(required)* | Directory where outputs are written |
 | `--verbose` | off | Print per-token allocation details and spread scores |
 | `--test-mode` | off | Load only the first 100 000 vectors (quick sanity check) |
@@ -54,7 +55,7 @@ The filename stem encodes the run parameters for easy traceability.
   -i /data/vectors.npy \
   --token-ids-file /data/token_ids.npy \
   --total-centroids 2097152 \
-  --tac-n-iter 10 \
+  --tac-epochs 10 \
   --verbose \
   -o /data/tac_output/
 ```
@@ -83,8 +84,10 @@ Runs the full pipeline (clustering → PQ training → encoding → HNSW) and sa
 | `-o`, `--output-file` | *(required)* | Output path for the serialized index |
 | `--total-centroids` | `4194304` | Coarse-centroid budget |
 | `--clustering` | `tac` | `tac` (Token-Aware Clustering) or `kmeans` (one k-means over all tokens, ignores token ids) |
-| `--tac-n-iter` | `10` | K-means iterations per token group in TAC |
-| `--kmeans-n-iter` | `10` | Lloyd iterations for k-means |
+| `--tac-epochs` | solver default (10 Lloyd, 2 e-means) | K-means epochs per token group in TAC |
+| `--tac-solver` | vectorium's default | TAC k-means solver: `lloyd` or `emeans` |
+| `--kmeans-epochs` | solver default (10 Lloyd, 2 e-means) | Epochs for `--clustering kmeans` |
+| `--kmeans-solver` | vectorium's default | `--clustering kmeans` solver: `lloyd` or `emeans` |
 | `--kmeans-points-per-centroid` | `64` | k-means trains on `min(N, points_per_centroid × total_centroids)` sampled tokens |
 | `--kmeans-seed` | `42` | RNG seed for k-means sampling and initialisation |
 | `--kmeans-assign` | `hnsw` | Nearest-centroid search in k-means: `hnsw` or `flat` (exact, `O(N·K·d)` per iteration) |
@@ -92,7 +95,8 @@ Runs the full pipeline (clustering → PQ training → encoding → HNSW) and sa
 | `--kmeans-hnsw-ef-construction` | `200` | HNSW ef_construction for k-means assignment |
 | `--kmeans-hnsw-ef-search` | `16` | HNSW ef_search for k-means assignment |
 | `--pq-sample-size` | `10000000` | Tokens sampled for PQ training |
-| `--pq-n-iter` | `10` | K-means iterations for PQ subspace training |
+| `--pq-epochs` | solver default (10 Lloyd, 2 e-means) | K-means epochs for PQ subspace training |
+| `--pq-solver` | vectorium's default | PQ k-means solver: `lloyd` or `emeans` |
 | `--normalize` | off | L2-normalise residuals before PQ encoding |
 | `--pq-seed` | `42` | RNG seed for reproducible PQ training |
 | `--hnsw-m` | `32` | HNSW neighbours per node in the centroid graph |
@@ -234,9 +238,9 @@ query_ids = "query_ids.npy"    # optional: integer → string query ID mapping
 
 [build_params]
 total-centroids = 4194304
-tac-n-iter      = 10
+tac-epochs      = 10
 pq-sample-size  = 10000000
-pq-n-iter       = 10
+pq-epochs       = 10
 normalize       = true
 pq-seed         = 42
 hnsw-m          = 32

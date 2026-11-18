@@ -512,12 +512,14 @@ mod tests {
             token_ids: (0..n_tokens).map(|i| i % 97).collect(),
             total_centroids: 128,
             clustering: Clustering::Tac(TacParams {
-                n_iter: 3,
+                epochs: Some(3.0),
+                solver: Default::default(),
                 micro_threshold: None,
                 small_threshold: None,
             }),
             pq_sample_size: n_tokens,
-            pq_n_iter: 3,
+            pq_epochs: Some(3.0),
+            pq_solver: Default::default(),
             normalize,
             pq_seed: Some(42),
             hnsw_params: HNSWBuildConfiguration::default()
