@@ -51,7 +51,7 @@ impl KMeansSolver {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "default" => Some(KMeansSolver::Default),
-            "lloyd" | "kmeans" | "k-means" => Some(KMeansSolver::Lloyd),
+            "lloyd" => Some(KMeansSolver::Lloyd),
             "emeans" | "e-means" => Some(KMeansSolver::Emeans),
             _ => None,
         }

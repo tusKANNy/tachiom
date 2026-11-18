@@ -83,11 +83,11 @@ Runs the full pipeline (clustering → PQ training → encoding → HNSW) and sa
 | `--doclens-file` | *(required)* | `[n_docs]` document lengths (i32 or i64) |
 | `-o`, `--output-file` | *(required)* | Output path for the serialized index |
 | `--total-centroids` | `4194304` | Coarse-centroid budget |
-| `--clustering` | `tac` | `tac` (Token-Aware Clustering) or `kmeans` (one k-means over all tokens, ignores token ids) |
+| `--clustering` | `tac` | Scope: `tac` (Token-Aware Clustering, one k-means per token type) or `global` (one k-means over all tokens, ignores token ids; alias `kmeans`) |
 | `--tac-epochs` | solver default (10 Lloyd, 2 e-means) | K-means epochs per token group in TAC |
 | `--tac-solver` | vectorium's default | TAC k-means solver: `lloyd` or `emeans` |
-| `--kmeans-epochs` | solver default (10 Lloyd, 2 e-means) | Epochs for `--clustering kmeans` |
-| `--kmeans-solver` | vectorium's default | `--clustering kmeans` solver: `lloyd` or `emeans` |
+| `--kmeans-epochs` | solver default (10 Lloyd, 2 e-means) | Epochs for `--clustering global` |
+| `--kmeans-solver` | vectorium's default | `--clustering global` solver: `lloyd` or `emeans` |
 | `--kmeans-points-per-centroid` | `64` | k-means trains on `min(N, points_per_centroid × total_centroids)` sampled tokens |
 | `--kmeans-seed` | `42` | RNG seed for k-means sampling and initialisation |
 | `--kmeans-assign` | `hnsw` | Nearest-centroid search in k-means: `hnsw` or `flat` (exact, `O(N·K·d)` per iteration) |
@@ -125,7 +125,7 @@ be reduced to its breakdown with `grep '\[timing\]'`:
 [timing] inverted_lists: 25.98s
 ```
 
-With `--clustering kmeans`, the `tac.*` lines are replaced by `kmeans.sample`, `kmeans.train`
+With `--clustering global`, the `tac.*` lines are replaced by `kmeans.sample`, `kmeans.train`
 and `kmeans.assign` (final assignment of every token).
 
 Note that `residual_encoding` covers both the residual computation and the PQ code assignment:

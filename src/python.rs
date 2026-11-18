@@ -297,12 +297,12 @@ fn resolve_clustering(
         "tac" => {
             if kmeans.any_set() {
                 return Err(PyValueError::new_err(
-                    "kmeans_* arguments require clustering=\"kmeans\"",
+                    "kmeans_* arguments require clustering=\"global\"",
                 ));
             }
             let token_ids = token_ids.ok_or_else(|| {
                 PyValueError::new_err(
-                    "clustering=\"tac\" requires token ids; pass them or use clustering=\"kmeans\"",
+                    "clustering=\"tac\" requires token ids; pass them or use clustering=\"global\"",
                 )
             })?;
             let resolved = resolve_tac_params(
@@ -322,17 +322,18 @@ fn resolve_clustering(
             };
             Ok((Clustering::Tac(params), resolved.total_centroids))
         }
-        "kmeans" => {
+        // "kmeans" is the pre-0.6 name of the global scope.
+        "global" | "kmeans" => {
             if tac_set {
                 return Err(PyValueError::new_err(
                     "tac_* arguments require clustering=\"tac\"",
                 ));
             }
             let total = total_centroids.unwrap_or_else(|| auto_total_centroids(n_tokens));
-            Ok((Clustering::KMeans(kmeans.into_params()?), total))
+            Ok((Clustering::Global(kmeans.into_params()?), total))
         }
         other => Err(PyValueError::new_err(format!(
-            "clustering must be \"tac\" or \"kmeans\", got {other:?}"
+            "clustering must be \"tac\" or \"global\", got {other:?}"
         ))),
     }
 }
@@ -1295,7 +1296,7 @@ impl PyTac {
 // PyKMeans class
 // ============================================================================
 
-/// Standalone global k-means: the clustering step of `clustering="kmeans"`, whose
+/// Standalone global k-means: the clustering step of `clustering="global"`, whose
 /// output can be inspected or fed to `Tachiom.build_from_centroids`.
 #[pyclass(name = "KMeans", module = "tachiom", unsendable)]
 pub struct PyKMeans {

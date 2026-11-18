@@ -53,24 +53,25 @@ index = tachiom.Tachiom.build(
 
 #### Choosing the clustering method
 
-`clustering` selects how the coarse centroids are computed:
+`clustering` selects the scope of the coarse clustering. The k-means solver (Lloyd or e-means)
+is chosen separately, with `tac_solver` / `kmeans_solver`.
 
 | `clustering` | Method | Token ids |
 |---|---|---|
 | `"tac"` (default) | Token-Aware Clustering: per-token-type k-means | required |
-| `"kmeans"` | One k-means over all tokens | ignored |
+| `"global"` (alias `"kmeans"`) | One k-means over all tokens | ignored |
 
 **Use TAC whenever you have meaningful token ids.** TAC relies on them being vocabulary ids;
-`"kmeans"` is the fallback for when they are not — multilingual vocabularies, image patches,
+`"global"` is the fallback for when they are not — multilingual vocabularies, image patches,
 or no token ids at all. Arguments prefixed
-`tac_` apply only to TAC and `kmeans_` only to k-means; mixing them raises `ValueError`.
+`tac_` apply only to TAC and `kmeans_` only to global k-means; mixing them raises `ValueError`.
 
 ```python
 index = tachiom.Tachiom.build(
     vectors_path,
     None,                        # token ids: ignored by k-means
     doclens_path,
-    clustering="kmeans",
+    clustering="global",
     kmeans_epochs=10,            # k-means epochs (default: solver's own)
     kmeans_solver="lloyd",       # "lloyd" or "emeans" (default: vectorium's default)
     kmeans_points_per_centroid=64,  # train on min(N, 64 × total_centroids) sampled tokens
@@ -83,7 +84,7 @@ index = tachiom.Tachiom.build(
 
 `kmeans_assign="flat"` scans every centroid for every token — exact, but `O(N · K · d)` per
 iteration, so only practical for small corpora. `"hnsw"` rebuilds an HNSW over the centroids
-at each iteration and scales to millions of centroids. With `"kmeans"`, token ids are ignored
+at each iteration and scales to millions of centroids. With `"global"`, token ids are ignored
 even when given, and the PQ training sample is drawn uniformly. (TAC stratifies it by token
 type to follow its per-type centroid budget; k-means has no such budget.)
 
@@ -253,7 +254,7 @@ index = tachiom.Tachiom.build_from_centroids(
 
 ## `KMeans` — global k-means
 
-`KMeans` is the clustering step of `clustering="kmeans"`. It takes the same arguments as the
+`KMeans` is the clustering step of `clustering="global"`. It takes the same arguments as the
 `kmeans_*` build arguments, without the prefix.
 
 ```python

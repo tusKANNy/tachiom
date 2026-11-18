@@ -12,8 +12,11 @@ use vectorium::{IndexSerializer, MultiVectorDataset, PlainMultiVecQuantizer};
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum ClusteringArg {
+    /// Token-Aware Clustering: one k-means per token type.
     Tac,
-    Kmeans,
+    /// One global k-means over all tokens, ignoring token ids.
+    #[value(alias = "kmeans")]
+    Global,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
@@ -50,7 +53,8 @@ struct Args {
     #[clap(long, default_value_t = 4_194_304)]
     total_centroids: usize,
 
-    /// Coarse-clustering method
+    /// Coarse-clustering scope: per token type (`tac`) or over all tokens (`global`, alias
+    /// `kmeans`). The k-means solver is set with `--tac-solver` / `--kmeans-solver`
     #[clap(long, value_enum, default_value_t = ClusteringArg::Tac)]
     clustering: ClusteringArg,
 
@@ -71,12 +75,12 @@ struct Args {
     #[clap(long, default_value_t = 256)]
     tac_small_threshold: usize,
 
-    /// K-means budget for --clustering kmeans, in epochs (one epoch assigns every training vector once).
+    /// K-means budget for --clustering global, in epochs (one epoch assigns every training vector once).
     /// Default: the solver's default, 10 for Lloyd and 2 for e-means
     #[clap(long)]
     kmeans_epochs: Option<f64>,
 
-    /// K-means solver for --clustering kmeans (default: vectorium's default)
+    /// K-means solver for --clustering global (default: vectorium's default)
     #[clap(long, value_enum, default_value_t = KMeansSolver::Default)]
     kmeans_solver: KMeansSolver,
 
@@ -198,8 +202,8 @@ fn main() -> anyhow::Result<()> {
 
     // ── Load token type IDs ───────────────────────────────────────────────────
     let token_ids = match (&args.token_ids_file, &args.clustering) {
-        (Some(_), ClusteringArg::Kmeans) => {
-            println!("Token IDs are ignored with --clustering kmeans; not loading them.");
+        (Some(_), ClusteringArg::Global) => {
+            println!("Token IDs are ignored with --clustering global; not loading them.");
             Vec::new()
         }
         (Some(path), ClusteringArg::Tac) => {
@@ -266,7 +270,7 @@ fn main() -> anyhow::Result<()> {
                 small_threshold: Some(args.tac_small_threshold),
             })
         }
-        ClusteringArg::Kmeans => Clustering::KMeans(KMeansParams {
+        ClusteringArg::Global => Clustering::Global(KMeansParams {
             epochs: args.kmeans_epochs,
             solver: args.kmeans_solver,
             points_per_centroid: args.kmeans_points_per_centroid,

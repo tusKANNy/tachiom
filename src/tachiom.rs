@@ -960,7 +960,7 @@ pub struct TachiomBuildParams {
     /// the flattened dataset (documents concatenated in order).  Required by
     /// [`Clustering::Tac`], which allocates the centroid budget across token types
     /// and also stratifies the PQ training sample by token type.  Ignored by
-    /// [`Clustering::KMeans`], which always samples the PQ training set uniformly.
+    /// [`Clustering::Global`], which always samples the PQ training set uniformly.
     /// [`Tachiom::build_index_from_centroids`] stratifies by them when present.
     pub token_ids: Vec<usize>,
 
@@ -1014,12 +1014,13 @@ impl Default for TachiomBuildParams {
     }
 }
 
-/// Coarse-clustering method used by [`Tachiom::build_index`].
+/// Scope of the coarse clustering used by [`Tachiom::build_index`]: how the token vectors are
+/// partitioned before k-means runs. The k-means solver is chosen separately, inside the params.
 pub enum Clustering {
-    /// Token-Aware Clustering: per-token-type k-means (needs `token_ids`).
+    /// Token-Aware Clustering: one k-means per token type (needs `token_ids`).
     Tac(TacParams),
-    /// One k-means over all token vectors, ignoring token ids.
-    KMeans(KMeansParams),
+    /// One global k-means over all token vectors, ignoring token ids.
+    Global(KMeansParams),
 }
 
 /// Parameters for [`Clustering::Tac`].
@@ -1188,7 +1189,7 @@ impl<const M: usize> Tachiom<M> {
                     &params.token_ids[..],
                 )
             }
-            Clustering::KMeans(kmeans_params) => {
+            Clustering::Global(kmeans_params) => {
                 println!("[Tachiom::build_index] Step 1: k-means clustering...");
                 let r = train_kmeans(
                     flat_f16_ref,

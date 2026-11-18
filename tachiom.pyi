@@ -104,7 +104,7 @@ class Tac:
 class KMeans:
     """Global k-means over all token vectors, ignoring token ids.
 
-    The clustering step of ``Tachiom.build(..., clustering="kmeans")``, usable on
+    The clustering step of ``Tachiom.build(..., clustering="global")``, usable on
     its own to inspect centroids or to cluster once and build many indexes::
 
         km = KMeans(assign="hnsw")
@@ -227,14 +227,16 @@ class Tachiom:
     ) -> Tachiom:
         """Build an index from .npy inputs (full pipeline: clustering → PQ → HNSW).
 
-        ``clustering`` selects how coarse centroids are computed:
-            "tac":    Token-Aware Clustering, per-token-type k-means. Needs token ids.
-            "kmeans": one k-means over all tokens, ignoring token ids (e.g. for
+        ``clustering`` selects the scope of the coarse clustering (the k-means solver is
+        chosen separately, with ``tac_solver`` / ``kmeans_solver``):
+            "tac":    Token-Aware Clustering, one k-means per token type. Needs token ids.
+            "global": one k-means over all tokens, ignoring token ids (e.g. for
                       multilingual or multimodal corpora). ``token_ids_path`` may be
                       None and is ignored when given: the PQ training sample is
                       always drawn uniformly. Prefer "tac" when token ids are
-                      meaningful; "kmeans" is the fallback when they are not.
-        ``tac_*`` arguments apply only to "tac" and ``kmeans_*`` only to "kmeans";
+                      meaningful; "global" is the fallback when they are not.
+                      "kmeans" is accepted as an alias (the pre-0.6 name).
+        ``tac_*`` arguments apply only to "tac" and ``kmeans_*`` only to "global";
         passing the other method's arguments raises ValueError. See ``KMeans``
         for the meaning of the ``kmeans_*`` arguments.
 
@@ -300,8 +302,8 @@ class Tachiom:
             vectors:   [N, dim] uint16, C-contiguous.  The u16 bit patterns are
                        reinterpreted as IEEE-754 f16 values, matching the on-disk
                        format written by the indexing pipeline.
-            token_ids: [N] u32, vocabulary id per token, or None (clustering="kmeans" only;
-                       ignored by "kmeans" when given).
+            token_ids: [N] u32, vocabulary id per token, or None (clustering="global" only;
+                       ignored by "global" when given).
             doclens:   [n_docs] i32, tokens per document.
         """
         ...
