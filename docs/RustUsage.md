@@ -90,7 +90,7 @@ Runs the full pipeline (clustering → PQ training → encoding → HNSW) and sa
 | `--kmeans-solver` | vectorium's default | `--clustering global` solver: `lloyd` or `emeans` |
 | `--kmeans-points-per-centroid` | `64` | k-means trains on `min(N, points_per_centroid × total_centroids)` sampled tokens |
 | `--kmeans-seed` | `42` | RNG seed for k-means sampling and initialisation |
-| `--kmeans-assign` | `hnsw` | Nearest-centroid search in k-means: `hnsw` or `flat` (exact, `O(N·K·d)` per iteration) |
+| `--kmeans-ann` | `auto` | ANN-accelerated assignment for `--clustering global`: `auto` (on from 4,096 centroids), `on` or `off` (exact, `O(N·K·d)` per iteration). The index is chosen by solver: HNSW for Lloyd, IVF over the centroids for e-means |
 | `--kmeans-hnsw-m` | `32` | HNSW M for k-means assignment |
 | `--kmeans-hnsw-ef-construction` | `200` | HNSW ef_construction for k-means assignment |
 | `--kmeans-hnsw-ef-search` | `16` | HNSW ef_search for k-means assignment |

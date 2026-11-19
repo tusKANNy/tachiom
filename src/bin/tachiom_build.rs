@@ -4,9 +4,10 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::time::Instant;
 
+use kannolo::indexes::ivf::AnnAssignment;
 use tachiom::KMeansSolver;
 use tachiom::hnsw::{HNSWBuildConfiguration, HNSWSearchConfiguration};
-use tachiom::kmeans::{KMeansAssign, KMeansParams};
+use tachiom::kmeans::KMeansParams;
 use tachiom::tachiom::{Clustering, TacParams, Tachiom, TachiomBuildParams, TachiomInputDataset};
 use vectorium::{IndexSerializer, MultiVectorDataset, PlainMultiVecQuantizer};
 
@@ -19,10 +20,22 @@ enum ClusteringArg {
     Global,
 }
 
+/// `--kmeans-ann`: see [`AnnAssignment`].
 #[derive(ValueEnum, Clone, Copy, Debug)]
-enum KMeansAssignArg {
-    Flat,
-    Hnsw,
+enum AnnArg {
+    Auto,
+    On,
+    Off,
+}
+
+impl From<AnnArg> for AnnAssignment {
+    fn from(a: AnnArg) -> Self {
+        match a {
+            AnnArg::Auto => AnnAssignment::Auto,
+            AnnArg::On => AnnAssignment::On,
+            AnnArg::Off => AnnAssignment::Off,
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -92,11 +105,13 @@ struct Args {
     #[clap(long, default_value_t = 42)]
     kmeans_seed: u64,
 
-    /// Nearest-centroid search inside k-means
-    #[clap(long, value_enum, default_value_t = KMeansAssignArg::Hnsw)]
-    kmeans_assign: KMeansAssignArg,
+    /// ANN-accelerated nearest-centroid search for --clustering global: `auto` turns it on from
+    /// 4,096 centroids. The index is chosen by solver: HNSW for Lloyd, an IVF over the centroids
+    /// for e-means. The final assignment uses an HNSW
+    #[clap(long, value_enum, default_value_t = AnnArg::Auto)]
+    kmeans_ann: AnnArg,
 
-    /// HNSW M for k-means assignment
+    /// HNSW M for k-means assignment (Lloyd's index and the final assignment)
     #[clap(long, default_value_t = 32)]
     kmeans_hnsw_m: usize,
 
@@ -275,16 +290,12 @@ fn main() -> anyhow::Result<()> {
             solver: args.kmeans_solver,
             points_per_centroid: args.kmeans_points_per_centroid,
             seed: args.kmeans_seed,
-            assign: match args.kmeans_assign {
-                KMeansAssignArg::Flat => KMeansAssign::Flat,
-                KMeansAssignArg::Hnsw => KMeansAssign::Hnsw {
-                    build: HNSWBuildConfiguration::default()
-                        .with_num_neighbors(args.kmeans_hnsw_m)
-                        .with_ef_construction(args.kmeans_hnsw_ef_construction),
-                    search: HNSWSearchConfiguration::default()
-                        .with_ef_search(args.kmeans_hnsw_ef_search),
-                },
-            },
+            ann: args.kmeans_ann.into(),
+            hnsw_build: HNSWBuildConfiguration::default()
+                .with_num_neighbors(args.kmeans_hnsw_m)
+                .with_ef_construction(args.kmeans_hnsw_ef_construction),
+            hnsw_search: HNSWSearchConfiguration::default()
+                .with_ef_search(args.kmeans_hnsw_ef_search),
         }),
     };
 

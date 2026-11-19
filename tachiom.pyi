@@ -107,7 +107,7 @@ class KMeans:
     The clustering step of ``Tachiom.build(..., clustering="global")``, usable on
     its own to inspect centroids or to cluster once and build many indexes::
 
-        km = KMeans(assign="hnsw")
+        km = KMeans(ann="auto")
         km.train("vectors.npy")
         np.save("centroids.npy", km.centroids)
         np.save("assignments.npy", km.assignments)
@@ -124,7 +124,7 @@ class KMeans:
         solver: str | None = None,
         points_per_centroid: int | None = None,
         seed: int | None = None,
-        assign: str | None = None,
+        ann: str | None = None,
         hnsw_m: int | None = None,
         hnsw_ef_construction: int | None = None,
         hnsw_ef_search: int | None = None,
@@ -135,7 +135,7 @@ class KMeans:
             epochs:               solver default (10 for Lloyd, 2 for e-means)
             points_per_centroid:  64 (train on min(N, 64 × n_centroids) sampled tokens)
             seed:                 42
-            assign:               "hnsw"
+            ann:                  "auto"
             hnsw_m:               32
             hnsw_ef_construction: 200
             hnsw_ef_search:       16
@@ -147,10 +147,14 @@ class KMeans:
             points_per_centroid: Training-sample size as a multiple of n_centroids (> 0);
                 every token is assigned to its nearest centroid afterwards.
             seed: Seed for sampling and initialisation.
-            assign: Nearest-centroid search: "flat" (exhaustive, exact) or "hnsw"
-                (HNSW over the centroids, rebuilt each iteration).
-            hnsw_m, hnsw_ef_construction, hnsw_ef_search: HNSW parameters for
-                assign="hnsw"; passing them with assign="flat" raises ValueError.
+            ann: ANN-accelerated nearest-centroid search: "auto" (on from 4,096
+                centroids), "on" or "off" (exhaustive, exact). The index is chosen by
+                solver: an HNSW rebuilt each iteration for Lloyd, an IVF over the
+                centroids re-filed after every mini-batch for e-means. The final
+                assignment uses an HNSW.
+            hnsw_m, hnsw_ef_construction, hnsw_ef_search: HNSW parameters (Lloyd's
+                index and the final assignment); passing them with ann="off" raises
+                ValueError.
         """
         ...
 
@@ -211,7 +215,7 @@ class Tachiom:
         kmeans_solver: str | None = None,
         kmeans_points_per_centroid: int | None = None,
         kmeans_seed: int | None = None,
-        kmeans_assign: str | None = None,
+        kmeans_ann: str | None = None,
         kmeans_hnsw_m: int | None = None,
         kmeans_hnsw_ef_construction: int | None = None,
         kmeans_hnsw_ef_search: int | None = None,
@@ -248,7 +252,7 @@ class Tachiom:
             tac_small_threshold: auto (2 × tac_micro_threshold)
             *_solver:            vectorium's default k-means solver ("lloyd" or "emeans")
             kmeans_*:            see KMeans (epochs=solver default, points_per_centroid=64,
-                                 seed=42, assign="hnsw", hnsw m=32/ef_c=200/ef_s=16)
+                                 seed=42, ann="auto", hnsw m=32/ef_c=200/ef_s=16)
             pq_sample_size:      10_000_000
             pq_epochs:           solver default (10 for Lloyd, 2 for e-means)
             normalize:           True (L2-normalise residuals before PQ encoding)
@@ -277,7 +281,7 @@ class Tachiom:
         kmeans_solver: str | None = None,
         kmeans_points_per_centroid: int | None = None,
         kmeans_seed: int | None = None,
-        kmeans_assign: str | None = None,
+        kmeans_ann: str | None = None,
         kmeans_hnsw_m: int | None = None,
         kmeans_hnsw_ef_construction: int | None = None,
         kmeans_hnsw_ef_search: int | None = None,

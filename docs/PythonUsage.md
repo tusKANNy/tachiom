@@ -75,16 +75,20 @@ index = tachiom.Tachiom.build(
     kmeans_epochs=10,            # k-means epochs (default: solver's own)
     kmeans_solver="lloyd",       # "lloyd" or "emeans" (default: vectorium's default)
     kmeans_points_per_centroid=64,  # train on min(N, 64 × total_centroids) sampled tokens
-    kmeans_assign="hnsw",        # nearest-centroid search: "hnsw" or "flat" (exact)
-    kmeans_hnsw_m=32,            # HNSW parameters (assign="hnsw" only)
+    kmeans_ann="auto",           # ANN-accelerated assignment: "auto", "on" or "off" (exact)
+    kmeans_hnsw_m=32,            # HNSW parameters (Lloyd's index and the final assignment)
     kmeans_hnsw_ef_construction=200,
     kmeans_hnsw_ef_search=16,
 )
 ```
 
-`kmeans_assign="flat"` scans every centroid for every token — exact, but `O(N · K · d)` per
-iteration, so only practical for small corpora. `"hnsw"` rebuilds an HNSW over the centroids
-at each iteration and scales to millions of centroids. With `"global"`, token ids are ignored
+`kmeans_ann="off"` scans every centroid for every token — exact, but `O(N · K · d)` per
+iteration. `"on"` assigns through an ANN index over the centroids and scales to millions of
+centroids; the index is chosen by solver. With Lloyd it is an HNSW, rebuilt each iteration; with
+e-means it is an IVF over the centroids that is only re-filed after each mini-batch, since e-means
+refreshes the index tens of times per epoch. The final assignment uses an HNSW. The default,
+`"auto"`, turns it on from 4,096 centroids (the same threshold as kANNolo's IVF builds; below it a flat scan
+is about as fast). With `"global"`, token ids are ignored
 even when given, and the PQ training sample is drawn uniformly. (TAC stratifies it by token
 type to follow its per-type centroid budget; k-means has no such budget.)
 
@@ -263,7 +267,7 @@ km = tachiom.KMeans(
     epochs=10,
     points_per_centroid=64,
     seed=42,
-    assign="hnsw",             # or "flat"
+    ann="auto",                # or "on" / "off"
     hnsw_m=32, hnsw_ef_construction=200, hnsw_ef_search=16,
 )
 km.train("vectors.npy")

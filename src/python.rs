@@ -4,10 +4,11 @@
 //! single `tachiom` module with one `Tachiom` class.
 
 use crate::hnsw::{HNSWBuildConfiguration, HNSWSearchConfiguration};
-use crate::kmeans::{KMeansAssign, KMeansParams, KMeansResult, train_kmeans};
+use crate::kmeans::{KMeansParams, KMeansResult, train_kmeans};
 use crate::solver::KMeansSolver;
 use crate::tac::{TacBuilder, TacResult};
 use crate::tachiom::{Clustering, TacParams, Tachiom, TachiomBuildParams, TachiomInputDataset};
+use kannolo::indexes::ivf::AnnAssignment;
 use vectorium::core::index::IndexStats;
 use vectorium::vector_encoder::{MultiVecEncoder, VectorEncoder};
 use vectorium::{
@@ -210,7 +211,7 @@ struct KMeansKwargs {
     solver: Option<String>,
     points_per_centroid: Option<usize>,
     seed: Option<u64>,
-    assign: Option<String>,
+    ann: Option<String>,
     hnsw_m: Option<usize>,
     hnsw_ef_construction: Option<usize>,
     hnsw_ef_search: Option<usize>,
@@ -222,7 +223,7 @@ impl KMeansKwargs {
             || self.solver.is_some()
             || self.points_per_centroid.is_some()
             || self.seed.is_some()
-            || self.assign.is_some()
+            || self.ann.is_some()
             || self.hnsw_set()
     }
 
@@ -237,23 +238,18 @@ impl KMeansKwargs {
         if self.points_per_centroid == Some(0) {
             return Err(PyValueError::new_err("points_per_centroid must be > 0"));
         }
-        let assign = match self.assign.as_deref().unwrap_or("hnsw") {
-            "hnsw" => KMeansAssign::Hnsw {
-                build: HNSWBuildConfiguration::default()
-                    .with_num_neighbors(self.hnsw_m.unwrap_or(32))
-                    .with_ef_construction(self.hnsw_ef_construction.unwrap_or(200)),
-                search: HNSWSearchConfiguration::default()
-                    .with_ef_search(self.hnsw_ef_search.unwrap_or(16)),
-            },
-            "flat" if self.hnsw_set() => {
+        let ann = match self.ann.as_deref().unwrap_or("auto") {
+            "auto" => AnnAssignment::Auto,
+            "on" => AnnAssignment::On,
+            "off" if self.hnsw_set() => {
                 return Err(PyValueError::new_err(
-                    "HNSW parameters were given but the k-means assignment is \"flat\"",
+                    "HNSW parameters were given but ANN assignment is \"off\"",
                 ));
             }
-            "flat" => KMeansAssign::Flat,
+            "off" => AnnAssignment::Off,
             other => {
                 return Err(PyValueError::new_err(format!(
-                    "k-means assignment must be \"flat\" or \"hnsw\", got {other:?}"
+                    "ann must be \"auto\", \"on\" or \"off\", got {other:?}"
                 )));
             }
         };
@@ -264,7 +260,12 @@ impl KMeansKwargs {
                 .points_per_centroid
                 .unwrap_or(defaults.points_per_centroid),
             seed: self.seed.unwrap_or(defaults.seed),
-            assign,
+            ann,
+            hnsw_build: HNSWBuildConfiguration::default()
+                .with_num_neighbors(self.hnsw_m.unwrap_or(32))
+                .with_ef_construction(self.hnsw_ef_construction.unwrap_or(200)),
+            hnsw_search: HNSWSearchConfiguration::default()
+                .with_ef_search(self.hnsw_ef_search.unwrap_or(16)),
         })
     }
 }
@@ -450,7 +451,7 @@ impl PyTachiom {
         kmeans_solver = None,
         kmeans_points_per_centroid = None,
         kmeans_seed = None,
-        kmeans_assign = None,
+        kmeans_ann = None,
         kmeans_hnsw_m = None,
         kmeans_hnsw_ef_construction = None,
         kmeans_hnsw_ef_search = None,
@@ -481,7 +482,7 @@ impl PyTachiom {
         kmeans_solver: Option<String>,
         kmeans_points_per_centroid: Option<usize>,
         kmeans_seed: Option<u64>,
-        kmeans_assign: Option<String>,
+        kmeans_ann: Option<String>,
         kmeans_hnsw_m: Option<usize>,
         kmeans_hnsw_ef_construction: Option<usize>,
         kmeans_hnsw_ef_search: Option<usize>,
@@ -524,7 +525,7 @@ impl PyTachiom {
                 solver: kmeans_solver,
                 points_per_centroid: kmeans_points_per_centroid,
                 seed: kmeans_seed,
-                assign: kmeans_assign,
+                ann: kmeans_ann,
                 hnsw_m: kmeans_hnsw_m,
                 hnsw_ef_construction: kmeans_hnsw_ef_construction,
                 hnsw_ef_search: kmeans_hnsw_ef_search,
@@ -573,7 +574,7 @@ impl PyTachiom {
         kmeans_solver = None,
         kmeans_points_per_centroid = None,
         kmeans_seed = None,
-        kmeans_assign = None,
+        kmeans_ann = None,
         kmeans_hnsw_m = None,
         kmeans_hnsw_ef_construction = None,
         kmeans_hnsw_ef_search = None,
@@ -604,7 +605,7 @@ impl PyTachiom {
         kmeans_solver: Option<String>,
         kmeans_points_per_centroid: Option<usize>,
         kmeans_seed: Option<u64>,
-        kmeans_assign: Option<String>,
+        kmeans_ann: Option<String>,
         kmeans_hnsw_m: Option<usize>,
         kmeans_hnsw_ef_construction: Option<usize>,
         kmeans_hnsw_ef_search: Option<usize>,
@@ -652,7 +653,7 @@ impl PyTachiom {
                 solver: kmeans_solver,
                 points_per_centroid: kmeans_points_per_centroid,
                 seed: kmeans_seed,
-                assign: kmeans_assign,
+                ann: kmeans_ann,
                 hnsw_m: kmeans_hnsw_m,
                 hnsw_ef_construction: kmeans_hnsw_ef_construction,
                 hnsw_ef_search: kmeans_hnsw_ef_search,
@@ -1323,7 +1324,7 @@ impl PyKMeans {
         solver = None,
         points_per_centroid = None,
         seed = None,
-        assign = None,
+        ann = None,
         hnsw_m = None,
         hnsw_ef_construction = None,
         hnsw_ef_search = None,
@@ -1335,7 +1336,7 @@ impl PyKMeans {
         solver: Option<String>,
         points_per_centroid: Option<usize>,
         seed: Option<u64>,
-        assign: Option<String>,
+        ann: Option<String>,
         hnsw_m: Option<usize>,
         hnsw_ef_construction: Option<usize>,
         hnsw_ef_search: Option<usize>,
@@ -1346,7 +1347,7 @@ impl PyKMeans {
             solver,
             points_per_centroid,
             seed,
-            assign,
+            ann,
             hnsw_m,
             hnsw_ef_construction,
             hnsw_ef_search,

@@ -981,8 +981,8 @@ dependencies = [
 
 [[package]]
 name = "kannolo"
-version = "0.16.0"
-source = "git+https://github.com/TusKANNy/kannolo.git?tag=v0.16.0#301854a55c4a1f99456df9a02fbaaa875a441507"
+version = "0.17.0"
+source = "git+https://github.com/TusKANNy/kannolo.git?tag=v0.17.0#b39bcf3d78045c5fa0110402bf4d38b25b726b14"
 dependencies = [
  "bincode 2.0.1",
  "byteorder",
@@ -2012,7 +2012,7 @@ dependencies = [
 
 [[package]]
 name = "tachiom"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",

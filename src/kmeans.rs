@@ -5,7 +5,7 @@
 //! image patches, ...).  Training runs vectorium's k-means ([`KMeansSolver`]) on a sample of
 //! the corpus; every vector is then assigned to its nearest centroid.
 //!
-//! [`KMeansAssign`] selects how the nearest centroid is found, both during training
+//! [`KMeansParams::ann`] selects how the nearest centroid is found, both during training
 //! and in the final assignment pass.
 
 use half::f16;
@@ -19,42 +19,32 @@ use vectorium::core::index::Index;
 use vectorium::core::vector::DenseVectorView;
 use vectorium::{
     DenseDatasetGeneric, KMeans, PlainDenseDataset, PlainDenseQuantizer, ScalarDenseDataset,
-    ScalarDenseDatasetGrowable, ScalarDenseQuantizer, SquaredEuclideanDistance,
+    ScalarDenseDatasetGrowable, ScalarDenseQuantizer, Solver, SquaredEuclideanDistance,
 };
 
 use crate::solver::KMeansSolver;
 
 use crate::graph::Graph;
 use crate::hnsw::{HNSW, HNSWBuildConfiguration, HNSWSearchConfiguration};
+use kannolo::indexes::ivf::AnnAssignment;
+#[cfg(doc)]
+use kannolo::indexes::ivf::KMEANS_ANN_THRESHOLD;
+use kannolo::indexes::ivf::{CENTROID_IVF_N_PROBE, IvfCentroidIndexBuilder, IvfCentroids};
 
 /// Centroids: f32 means (and queries), stored as f16.
 type Centroids = ScalarDenseDataset<f32, f16, SquaredEuclideanDistance>;
 type Growable = ScalarDenseDatasetGrowable<f32, f16, SquaredEuclideanDistance>;
 type CentroidHnsw = HNSW<Centroids, Graph>;
 
-/// Nearest-centroid search used by k-means.
-pub enum KMeansAssign {
-    /// Exhaustive scan over all centroids: exact, `O(n · k · d)` per iteration.
-    Flat,
-    /// HNSW over the centroids, rebuilt every iteration and once more for the
-    /// final assignment.  Approximate, but scales to millions of centroids.
-    Hnsw {
-        build: HNSWBuildConfiguration,
-        search: HNSWSearchConfiguration,
-    },
-}
-
-impl KMeansAssign {
-    /// HNSW assignment with the parameters kANNolo uses for IVF training
-    /// (`M = 32`, `ef_construction = 200`, `ef_search = 16`).
-    pub fn hnsw_default() -> Self {
-        KMeansAssign::Hnsw {
-            build: HNSWBuildConfiguration::default()
-                .with_num_neighbors(32)
-                .with_ef_construction(200),
-            search: HNSWSearchConfiguration::default().with_ef_search(16),
-        }
-    }
+/// HNSW parameters kANNolo uses for k-means assignment (`M = 32`, `ef_construction = 200`,
+/// `ef_search = 16`).
+pub fn default_hnsw_configs() -> (HNSWBuildConfiguration, HNSWSearchConfiguration) {
+    (
+        HNSWBuildConfiguration::default()
+            .with_num_neighbors(32)
+            .with_ef_construction(200),
+        HNSWSearchConfiguration::default().with_ef_search(16),
+    )
 }
 
 /// Parameters for [`train_kmeans`].
@@ -69,8 +59,16 @@ pub struct KMeansParams {
     pub points_per_centroid: usize,
     /// Seed for sampling and initialisation (default: 42).
     pub seed: u64,
-    /// Nearest-centroid search (default: HNSW).
-    pub assign: KMeansAssign,
+    /// ANN-accelerated nearest-centroid search (default: [`AnnAssignment::Auto`], on from
+    /// kANNolo's [`KMEANS_ANN_THRESHOLD`] centroids). The index is chosen by solver: during
+    /// training, Lloyd uses an HNSW rebuilt every iteration and e-means an IVF over the centroids
+    /// that is re-filed after every mini-batch (kANNolo's [`IvfCentroidIndexBuilder`]). The final
+    /// assignment of every vector uses an HNSW.
+    pub ann: AnnAssignment,
+    /// HNSW construction parameters (Lloyd's index and the final assignment).
+    pub hnsw_build: HNSWBuildConfiguration,
+    /// HNSW search parameters (Lloyd's index and the final assignment).
+    pub hnsw_search: HNSWSearchConfiguration,
 }
 
 impl Default for KMeansParams {
@@ -80,7 +78,9 @@ impl Default for KMeansParams {
             solver: KMeansSolver::Default,
             points_per_centroid: 64,
             seed: 42,
-            assign: KMeansAssign::hnsw_default(),
+            ann: AnnAssignment::Auto,
+            hnsw_build: default_hnsw_configs().0,
+            hnsw_search: default_hnsw_configs().1,
         }
     }
 }
@@ -145,8 +145,12 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
         .build();
 
     // ── Train, then assign every vector ──────────────────────────────────────
-    let (centroids, assignments) = match &params.assign {
-        KMeansAssign::Flat => {
+    let index_params = params
+        .ann
+        .enabled(k)
+        .then_some((&params.hnsw_build, &params.hnsw_search));
+    let (centroids, assignments) = match index_params {
+        None => {
             let train_start = Instant::now();
             let centroids: Centroids = kmeans
                 .train::<_, Growable>(&train_set, k, None, ScalarDenseQuantizer::new(dim))
@@ -167,18 +171,30 @@ pub fn train_kmeans(data: &[f16], dim: usize, k: usize, params: &KMeansParams) -
             crate::timing::report("kmeans.assign", assign_start);
             (centroids.values().to_vec(), assignments)
         }
-        KMeansAssign::Hnsw { build, search } => {
+        Some((build, search)) => {
             let train_start = Instant::now();
-            let centroids: Centroids = kmeans
-                .train_with_index::<_, Growable, CentroidHnsw>(
+            let centroids: Centroids = match kmeans.solver() {
+                Solver::Lloyd => kmeans.train_with_index::<_, Growable, CentroidHnsw>(
                     &train_set,
                     k,
                     None,
                     ScalarDenseQuantizer::new(dim),
                     |c: Growable| CentroidHnsw::build_index(c.into(), build),
                     search,
-                )
-                .into();
+                ),
+                Solver::EMeans(_) => kmeans.train_with_index::<_, Growable, _>(
+                    &train_set,
+                    k,
+                    None,
+                    ScalarDenseQuantizer::new(dim),
+                    IvfCentroidIndexBuilder {
+                        seed: params.seed,
+                        ..Default::default()
+                    },
+                    &Centroids::ivf_search_params(CENTROID_IVF_N_PROBE),
+                ),
+            }
+            .into();
             crate::timing::report("kmeans.train", train_start);
             drop(train_set);
 
@@ -249,14 +265,11 @@ mod tests {
     fn assignments_are_nearest_centroids() {
         let (n, dim, k) = (5_000, 16, 50);
         let data = random_data(n, dim);
-        for (assign, min_exact) in [
-            (KMeansAssign::Flat, 1.0),
-            (KMeansAssign::hnsw_default(), 0.99),
-        ] {
+        for (ann, min_exact) in [(AnnAssignment::Off, 1.0), (AnnAssignment::On, 0.99)] {
             // points_per_centroid = 20 trains on 1 000 of the 5 000 vectors.
             let params = KMeansParams {
                 points_per_centroid: 20,
-                assign,
+                ann,
                 ..Default::default()
             };
             let result = train_kmeans(&data, dim, k, &params);
@@ -271,7 +284,7 @@ mod tests {
     fn k_is_capped_to_n_vectors() {
         let data = random_data(6, 4);
         let params = KMeansParams {
-            assign: KMeansAssign::Flat,
+            ann: AnnAssignment::Off,
             ..Default::default()
         };
         let result = train_kmeans(&data, 4, 100, &params);
