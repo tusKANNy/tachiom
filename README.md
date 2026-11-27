@@ -14,7 +14,7 @@ TACHIOM is a fast and scalable data structure for late-interaction multi-vector 
 
 ### Python
 
-#### Quick start (prebuilt wheels)
+#### Quick Start (prebuilt wheels)
 
 For most users, this is the easiest option:
 
@@ -30,11 +30,11 @@ This installs the core library with its only required dependency (`numpy`). If y
 pip install tachiom[scripts]
 ```
 
-#### Building from source (maximum performance)
+#### Building from Source (maximum performance)
 
 For maximum performance optimized to your CPU, build from source.
 
-**Shared prerequisites** — both approaches below require Rust nightly:
+**Shared Prerequisites** — both approaches below require Rust nightly:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -97,7 +97,7 @@ The resulting binaries are placed in `target/release/`.
 
 Details on how to use Tachiom's Rust CLI can be found in [docs/RustUsage.md](docs/RustUsage.md).
 
-## Quick start
+## Quick Start
 
 ```python
 import tachiom
