@@ -153,6 +153,8 @@ huggingface-cli download tuskanny/lotte_pooled_colbertv2 --repo-type dataset --l
 
 ## Bibliography
 
+1. Silvio Martinico, Franco Maria Nardini, Cosimo Rulli, Rossano Venturini. "*Efficient Multivector Retrieval with Token-Aware Clustering and Hierarchical Indexing*". ACM SIGIR 2026.
+
 SIGIR 2026
 ```bibtex
 @inproceedings{10.1145/3805712.3809927,
