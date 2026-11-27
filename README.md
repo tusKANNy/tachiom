@@ -150,15 +150,10 @@ huggingface-cli download tuskanny/lotte_pooled_colbertv2 --repo-type dataset --l
 | [Jupyter notebooks](notebooks/) | End-to-end demo on TAC and TACHIOM |
 | [Experiments](experiments/sigir2026/) | TOML configs used for the SIGIR 2026 benchmarks |
 
-## License
 
-This software is released under the **MIT License** (see [LICENSE](LICENSE)).
+## Bibliography
 
-## Citation
-
-If you use this software in your research, please cite our **SIGIR 2026** paper:
-
-
+SIGIR 2026
 ```bibtex
 @inproceedings{10.1145/3805712.3809927,
 author = {Martinico, Silvio and Nardini, Franco Maria and Rulli, Cosimo and Venturini, Rossano},
@@ -177,3 +172,9 @@ location = {Australia},
 series = {SIGIR '26}
 }
 ```
+
+## Citation License
+The source code in this repository is subject to the following citation license: **By downloading and using this software, you agree to cite the papers listed in the Bibliography section above in any kind of material you produce where it was used to conduct a search or experimentation, whether it be a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license**.
+
+## License
+This software is released under the **MIT License** (see [LICENSE](LICENSE)).
