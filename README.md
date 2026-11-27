@@ -1,10 +1,11 @@
 <h1 align="center">TACHIOM</h1>
+
 <p align="center">
     <img width="250px" src="/imgs/tachiom_logo.png" />
 </p>
 
 <p align="center">
-  <a href="https://arxiv.org/abs/2604.28142"><img src="https://badgen.net/static/arXiv/2604.28142/red" /></a>
+  <a href="https://dl.acm.org/doi/10.1145/3805712.3809927"><img src="https://badgen.net/static/paper/SIGIR 2026/red" /></a>
 </p>
 
 TACHIOM is a fast and scalable data structure for late-interaction multi-vector retrieval, written in Rust with Python bindings. It introduces **Token-Aware Clustering (TAC)**, which distributes the coarse-centroid budget proportionally across token types, and a hierarchical Product Quantization scheme for efficient candidate reranking.
@@ -177,6 +178,7 @@ series = {SIGIR '26}
 
 ## Citation License
 The source code in this repository is subject to the following citation license: **By downloading and using this software, you agree to cite the papers listed in the Bibliography section above in any kind of material you produce where it was used to conduct a search or experimentation, whether it be a research paper, dissertation, article, poster, presentation, or documentation. By using this software, you have agreed to the citation license**.
+
 
 ## License
 This software is released under the **MIT License** (see [LICENSE](LICENSE)).
