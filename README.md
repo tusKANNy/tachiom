@@ -8,6 +8,13 @@
   <a href="https://dl.acm.org/doi/10.1145/3805712.3809927"><img src="https://badgen.net/static/paper/SIGIR 2026/red" /></a>
 </p>
 
+<p align="center">
+    <a href="https://pepy.tech/projects/tachiom"><img src="https://static.pepy.tech/badge/tachiom" /></a>
+    <a href="https://pepy.tech/projects/tachiom"><img src="https://static.pepy.tech/badge/tachiom/month" /></a>
+    <a href="https://github.com/TusKANNy/tachiom/stargazers"><img src="https://badgen.net/github/stars/TusKANNy/tachiom" /></a>
+    <a href="LICENSE"><img src="https://badgen.net/static/license/MIT/blue" /></a>
+</p>
+
 TACHIOM is a fast and scalable data structure for late-interaction multi-vector retrieval, written in Rust with Python bindings. It introduces **Token-Aware Clustering (TAC)**, which distributes the coarse-centroid budget proportionally across token types, and a hierarchical Product Quantization scheme for efficient candidate reranking.
 
 ## Installation
